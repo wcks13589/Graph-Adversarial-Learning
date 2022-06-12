@@ -9,7 +9,7 @@ from model import Defender
 from utils import resplit_data, get_train_val_test, seed_everything
 
 parser = argparse.ArgumentParser()
-parser.add_argument('--seed', type=int, default=15, help='Random seed')
+parser.add_argument('--seed', type=int, default=18, help='Random seed')
 parser.add_argument('--dataset', type=str, default='cora', choices=['cora', 'citeseer', 'cora_ml', 'polblogs', 'pubmed', 'acm', 'blogcatalog', 'uai', 'flickr'])
 parser.add_argument('--ptb_rate', type=float, default=0.15, choices=[0.05, 0.1, 0.15, 0.2, 0.25], help='Pertubation rate')
 parser.add_argument('--attacker', type=str, default='meta', choices=['PGD', 'meta', 'Label', 'Class'])

@@ -137,7 +137,7 @@ class CoG(nn.Module):
                 # self.edge_index, self.edge_weight = self.delete_edges(real_edge_index, embeddings)
                 
                 fake_edge_index, fake_edge_weight = add_edges(fake_edge_index, fake_edge_weight, 
-                                                              training_labels, train_mask, mode='mix')
+                                                              training_labels, train_mask, self.n_real, mode='mix')
 
                 # loss = self.contrast(embeddings, self.edge_index, self.edge_weight, real_edge_index)
                 
@@ -191,10 +191,10 @@ class CoG(nn.Module):
             sim_mat = _similarity(embeddings)
             edge_weight = sim_mat[tuple(real_edge_index[:, single_mask])]
             unlabel_mask = torch.where(self.edge_mask == False)[0]
-            _, add_edges = edge_weight[unlabel_mask].topk(150)
+            _, train_edges = edge_weight[unlabel_mask].topk(150)
 
             # self.edge_mask[unlabel_mask[add_edges]] = True
-            for idx in unlabel_mask[add_edges]:
+            for idx in unlabel_mask[train_edges]:
                 if edge_weight[idx] > 0.2:
                     self.edge_mask[idx] = True
                 # s, d = real_edge_index[:, single_mask][:, idx]
@@ -210,7 +210,6 @@ class CoG(nn.Module):
             # plt.title(f'{(fake_adj[tuple(real_edge_index)].detach().cpu() > 0.4).sum().item()},   {new_real_edge_index.shape[1]}')
             #plt.savefig(f'./image/testplt_{i}.jpg')
 
-        torch.save(torch.cat(embeds, 0), 'fake_adj_LP_Denoise_0.2')
         self.restore_all(best_model_s_wts, best_model_g_wts, best_model_gcl_wts, real_edge_index, real_edge_weight, training_labels, train_mask)
 
     def restore_all(self, model_s_wts, model_g_wts, model_gcl_wts, real_edge_index, real_edge_weight, training_labels, train_mask):
@@ -223,7 +222,7 @@ class CoG(nn.Module):
 
         fake_edge_index, fake_edge_weight, embeddings = self.graph_learner(self.x)
         fake_edge_index, fake_edge_weight = add_edges(fake_edge_index, fake_edge_weight, 
-                                                      training_labels, train_mask, mode='mix')
+                                                      training_labels, train_mask, self.n_real, mode='mix')
 
         # self.edge_index,  self.edge_weight = self.delete_edges(real_edge_index, embeddings)
         self.edge_index = torch.cat([real_edge_index, fake_edge_index], -1)
