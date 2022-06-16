@@ -39,7 +39,7 @@ class CoG(nn.Module):
             logit = model(*x)
             return logit
 
-    def fit(self, x, adj, labels, idx_train, idx_val=None, idx_test=None, epochs=200, iteration=40):
+    def fit(self, x, adj, labels, idx_train, idx_val=None, idx_test=None, epochs=200, iteration=25):
         self.x = x
         self.edge_index = adj.nonzero().T
         self.edge_weight = adj[tuple(self.edge_index)]
@@ -102,7 +102,7 @@ class CoG(nn.Module):
         self.model_f.load_state_dict(best_model_f_wts)
         self.model_s.load_state_dict(best_model_s_wts)
 
-    def add_nodes(self, x, edge_index, labels, train_mask, n=25):
+    def add_nodes(self, x, edge_index, labels, train_mask, n=50):
         mask = torch.isin(torch.arange(x.shape[0]), train_mask)
         unlabel_nodes = torch.where(~mask)[0]
 

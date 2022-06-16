@@ -36,8 +36,7 @@ class CoG(nn.Module):
     def init_models(self):
 
         self.graph_learner = MLP_learner(2, self.nfeat, self.k)
-        self.gcl = GCL(self.nfeat, 512, 128)
-        self.model_s = GCN(self.nfeat, self.nhid, self.n_class)
+        self.model_s = GCN(self.nfeat, self.nhid, self.nhid, self.n_class)
 
     def init_label_ratio(self, labels, idx_train):
 
@@ -102,7 +101,7 @@ class CoG(nn.Module):
 
         return rec_loss
 
-    def fit(self, x, adj, labels, idx_train, idx_val=None, idx_test=None, epochs=200, iteration=40, fake_ratio=1):
+    def fit(self, x, adj, labels, idx_train, idx_val=None, idx_test=None, epochs=200, iteration=25, fake_ratio=1):
 
         train_mask = torch.LongTensor(idx_train)
         training_labels = labels.clone()
@@ -110,8 +109,7 @@ class CoG(nn.Module):
         self.init_label_ratio(labels, idx_train)
         
         optimizer = torch.optim.Adam(list(self.model_s.parameters())+\
-                                     list(self.graph_learner.parameters())+
-                                     list(self.gcl.parameters()),
+                                     list(self.graph_learner.parameters()),
                                      lr=self.lr, weight_decay=self.weight_decay)
         self.n_real = x.shape[0]
         self.x = torch.cat([x, x[idx_train].repeat(fake_ratio, 1)])
@@ -169,7 +167,6 @@ class CoG(nn.Module):
                         best_test_acc = accs[2]
                         best_model_s_wts = copy.deepcopy(self.model_s.state_dict())
                         best_model_g_wts = copy.deepcopy(self.graph_learner.state_dict())
-                        best_model_gcl_wts = copy.deepcopy(self.gcl.state_dict())
 
                     aft = k_hop_subgraph(torch.cat([torch.LongTensor(idx_train), torch.arange(len(idx_train))+self.n_real]).to(self.device), 2, self.edge_index)[0].shape[0] / self.x.shape[0]
                     aft = round(aft, 4)
@@ -188,7 +185,7 @@ class CoG(nn.Module):
 
             self.pseudo_nodes_list.extend(pseudo_nodes.tolist())
 
-            sim_mat = _similarity(embeddings)
+            sim_mat = _similarity(x)
             edge_weight = sim_mat[tuple(real_edge_index[:, single_mask])]
             unlabel_mask = torch.where(self.edge_mask == False)[0]
             _, train_edges = edge_weight[unlabel_mask].topk(150)
@@ -210,9 +207,9 @@ class CoG(nn.Module):
             # plt.title(f'{(fake_adj[tuple(real_edge_index)].detach().cpu() > 0.4).sum().item()},   {new_real_edge_index.shape[1]}')
             #plt.savefig(f'./image/testplt_{i}.jpg')
 
-        self.restore_all(best_model_s_wts, best_model_g_wts, best_model_gcl_wts, real_edge_index, real_edge_weight, training_labels, train_mask)
+        self.restore_all(best_model_s_wts, best_model_g_wts, real_edge_index, real_edge_weight, training_labels, train_mask)
 
-    def restore_all(self, model_s_wts, model_g_wts, model_gcl_wts, real_edge_index, real_edge_weight, training_labels, train_mask):
+    def restore_all(self, model_s_wts, model_g_wts, real_edge_index, real_edge_weight, training_labels, train_mask):
         
         self.model_s.load_state_dict(model_s_wts)
         self.graph_learner.load_state_dict(model_g_wts)
@@ -228,7 +225,7 @@ class CoG(nn.Module):
         self.edge_index = torch.cat([real_edge_index, fake_edge_index], -1)
         self.edge_weight = torch.cat([real_edge_weight, fake_edge_weight])
 
-    def add_nodes(self, train_mask, n=50):
+    def add_nodes(self, train_mask, n=100):
         mask = torch.isin(torch.arange(self.n_real).to(self.device), train_mask)
         unlabel_nodes = torch.where(~mask)[0]
 
@@ -280,21 +277,25 @@ class CoG(nn.Module):
         return s_embeds
 
 class GCN(nn.Module):
-    def __init__(self, in_dim, hid_dim, out_dim):
+    def __init__(self, in_dim, hid_dim, hid_dim1, out_dim):
         super().__init__()
         self.conv1 = GCNConv(in_dim, hid_dim)
-        self.conv2 = GCNConv(hid_dim, out_dim)
+        self.conv2 = GCNConv(hid_dim, hid_dim1)
+        self.output = nn.Linear(hid_dim1, out_dim)
 
     def forward(self, x, edge_index, edge_weight=None, T=0.2):
         x = self.get_embeds(x, edge_index, edge_weight)
+        x = self.output(x)
 
         return F.log_softmax(x/T, dim=1)
 
     def get_embeds(self, x, edge_index, edge_weight=None):
-        x = F.relu(self.conv1(x, edge_index, edge_weight))
+        x = self.conv1(x, edge_index, edge_weight)
+        x = F.relu(x)
         x = F.dropout(x, training=self.training)
+        x = self.conv2(x, edge_index, edge_weight)
 
-        return self.conv2(x, edge_index, edge_weight)
+        return x
 
 class MLP(nn.Module):
     def __init__(self, in_dim, hid_dim, out_dim):
@@ -321,10 +322,10 @@ class MLP_learner(nn.Module):
         if nlayers == 1:
             self.layers.append(nn.Linear(isize, isize))
         else:
-            self.layers.append(nn.Linear(isize, isize))
+            self.layers.append(nn.Linear(isize, isize//4))
             for _ in range(nlayers - 2):
                 self.layers.append(nn.Linear(isize, isize))
-            self.layers.append(nn.Linear(isize, isize))
+            self.layers.append(nn.Linear(isize//4, isize//8))
 
         self.input_dim = isize
         self.k = k

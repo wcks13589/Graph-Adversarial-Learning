@@ -39,12 +39,13 @@ class CoG(nn.Module):
     def init_models(self):
 
         self.graph_learner = MLP_learner(2, self.nfeat, self.k)
-        self.encoder_1 = GCN(self.nfeat, self.nhid, self.nhid, self.nfeat//8)
-        # self.encoder_2 = GCN(self.nfeat, self.nhid, self.n_class)
+        # self.encoder_1 = GCN(self.nfeat, self.nhid, self.nhid, self.nfeat//8)
+        self.encoder_2 = GCN(self.nfeat//8, self.nhid, self.nhid, self.n_class, False)
         self.decoder = GCN(self.nhid, self.nhid, self.nfeat, self.nhid, mask=True)
         self.model_s = GCN(self.nfeat, self.nhid, self.nhid, self.n_class, mask=True)
         self.encoder_to_decoder = nn.Linear(self.nhid, self.nhid, bias=True)
-        self.proj_head = nn.Linear(self.n_class, self.nhid, bias=True)
+        # self.proj_head = nn.Linear(self.n_class, self.nhid, bias=True)
+        self.embed = nn.Embedding(self.n_class, self.nfeat)
 
     def init_label_dict(self, labels, idx_train):
 
@@ -63,6 +64,28 @@ class CoG(nn.Module):
         edge_index = edge_index[:, edge_index[0]<edge_index[1]]
         if stepwise:
             edge_index = edge_index[:, self.edge_mask]
+
+        neg0 = z[randn[0]]
+        neg1 = z[randn[1]]
+        neg = torch.sum(torch.mul(neg0,neg1),dim=1)
+
+        pos0 = z[edge_index[0]]
+        pos1 = z[edge_index[1]]
+        pos = torch.sum(torch.mul(pos0,pos1),dim=1)
+
+        rec_loss = (F.mse_loss(neg,torch.zeros_like(neg), reduction='sum') + \
+                    F.mse_loss(pos, torch.ones_like(pos), reduction='sum')) \
+                    * self.n_real/(randn.shape[1] + edge_index.shape[1])
+        return rec_loss
+    
+    def recons_loss_2(self, z, edge_index, edge_mask, stepwise=True):
+        # Version 1 MSE
+        randn = negative_sampling(edge_index, num_nodes=self.n_real, num_neg_samples=5*self.n_real)
+        randn = randn[:,randn[0]<randn[1]]
+        
+        edge_index = edge_index[:, edge_index[0]<edge_index[1]]
+        if stepwise:
+            edge_index = edge_index[:, edge_mask]
 
         neg0 = z[randn[0]]
         neg1 = z[randn[1]]
@@ -134,8 +157,8 @@ class CoG(nn.Module):
 
         return torch.cat(x_fake), torch.cat(labels_fake).to(self.device), torch.LongTensor(edge_fake).T.to(self.device)
 
-    def fit(self, x, adj, labels, idx_train, idx_val=None, idx_test=None, epochs=200, iteration=40):
-        real_mask = torch.load('./image/cora_real_mask')
+    def fit(self, x, adj, labels, idx_train, idx_val=None, idx_test=None, epochs=200, iteration=25):
+        real_mask = torch.load('./image/citeseer_real_mask_0.2')
         train_mask = torch.LongTensor(idx_train).to(self.device)
         training_labels = labels.clone()
         self.init_label_dict(labels, idx_train)
@@ -145,8 +168,7 @@ class CoG(nn.Module):
         optimizer = torch.optim.Adam(list(self.model_s.parameters())+
                                      list(self.decoder.parameters())+
                                      list(self.graph_learner.parameters())+
-                                     list(self.encoder_to_decoder.parameters())+
-                                     list(self.proj_head.parameters()),
+                                     list(self.encoder_to_decoder.parameters()),
                                      lr=self.lr, weight_decay=self.weight_decay)
 
         real_edge_index = adj.nonzero().T
@@ -154,47 +176,58 @@ class CoG(nn.Module):
         single_mask = real_edge_index[0]<real_edge_index[1]
         self.edge_mask = torch.zeros(single_mask.sum().item()).bool()
 
-        self.x = x
-        # fake_x, fake_labels, fake_edge_index_0 = self.create_fake_nodes(100, x, labels, idx_train)
-        self.x = torch.cat([x, x[idx_train]]) # torch.cat([x, fake_x]) # 
-        train_mask = torch.cat([train_mask, torch.arange(len(idx_train)).to(self.device)+self.n_real])
-        training_labels = torch.cat([training_labels, labels[idx_train]]) # torch.cat([training_labels, fake_labels]) 
+        # self.x = x
+        # fake_x, fake_labels, fake_edge_index_0 = self.create_fake_nodes(10, x, labels, idx_train)
+        fake_labels = labels[idx_train] # torch.arange(self.n_class).to(self.device)
+        fake_x = x[idx_train] # self.embed(fake_labels)
+
+        self.x = torch.cat([x, fake_x]) # torch.cat([x, fake_x]) # 
+        train_mask = torch.cat([train_mask, torch.arange(len(fake_x)).to(self.device)+self.n_real])
+        training_labels = torch.cat([training_labels, fake_labels]) # torch.cat([training_labels, fake_labels]) 
+
+        label_dict = {}
+        for i in range(self.n_class):
+            label_dict[i] = torch.arange(len(fake_x)).to(self.device)[fake_labels == i]+self.n_real
+            # label_dict[i] = torch.LongTensor(idx_train).to(self.device)[labels[idx_train] == i]
 
         best_acc = 0
         for i in trange(iteration):
             for epoch in range(epochs):
                 optimizer.zero_grad()
-                # embeddings = self.graph_learner.internal_forward(self.x)
-                
-                # # embeddings = self.encoder_to_decoder(z)
-                # loss_lp = self.recons_loss(embeddings, real_edge_index)
-                # new_edge_index, new_edge_weight, edge_mask = self.delete_edges(real_edge_index, embeddings)
+
+                self.graph_learner.train()
+                fake_edge_index, fake_edge_weight, embeddings = self.graph_learner(self.x)
+                loss_lp = self.recons_loss(embeddings[:self.n_real], real_edge_index)
+
+                # new_edge_index, new_edge_weight, edge_mask = self.delete_edges(real_edge_index, embeddings, threshold=0.2)
+
+                # z = self.encoder_2.get_embeds(embeddings, real_edge_index[:, ~edge_mask])
+                # loss_lp += self.recons_loss(z[:self.n_real], new_edge_index, stepwise=False)
 
                 # embeddings_1 = self.model_s.get_embeds(x, real_edge_index)
                 # embeddings_1 = self.encoder_to_decoder(embeddings_1)
 
                 # self.model_s.mask_nodes = torch.unique(real_edge_index[:, ~edge_mask])
-                embeddings_ = self.model_s.get_embeds(self.x, real_edge_index, None, mask_rate=0.3, mask=True)
-                # embeddings = self.encoder_to_decoder(embeddings)
-                self.decoder.mask_nodes = self.model_s.mask_nodes
-                reconst = self.decoder.get_embeds(embeddings_, real_edge_index, None, mask=True)
-                loss_mask = self.mask_feature_loss(self.x[self.decoder.mask_nodes], reconst[self.decoder.mask_nodes])
+                embeddings_ = self.model_s.get_embeds(self.x[:self.n_real], real_edge_index, None, mask_rate=0.5)
+                loss_lp += self.recons_loss_2(embeddings_, real_edge_index, torch.zeros(single_mask.sum().item()).bool())
+                # embeddings_ = self.encoder_to_decoder(embeddings_)
+                reconst = self.decoder.get_embeds(embeddings_[:self.n_real], real_edge_index, None, mask_nodes=self.model_s.mask_nodes)
+                loss_mask = self.mask_feature_loss(self.x[self.model_s.mask_nodes], reconst[self.model_s.mask_nodes])
 
-                z = self.model_s.get_embeds(self.x, real_edge_index, None)
+                
                 # fake_edge_index, fake_edge_weight = knn_fast(z, self.k, 1000, self.device)
-                # fake_edge_index, fake_edge_weight = add_edges(fake_edge_index, fake_edge_weight, 
-                #                                               training_labels, train_mask, self.n_real, mode='mix')
+                fake_edge_index, fake_edge_weight = add_edges(fake_edge_index, fake_edge_weight, 
+                                                              training_labels, train_mask, self.n_real, mode='mix', threshold=0.6)
 
                 # self.edge_index = torch.cat([real_edge_index, fake_edge_index_0, fake_edge_index], -1)
                 # self.edge_weight = torch.cat([real_edge_weight, torch.ones_like(fake_edge_index_0[0]), fake_edge_weight])
-                self.edge_index, self.edge_weight, edge_mask = self.delete_edges(real_edge_index, z, threshold=0.8)
-                # self.edge_index = real_edge_index
-                # self.edge_weight = None
+                self.edge_index = torch.cat([real_edge_index, fake_edge_index], -1)
+                self.edge_weight = torch.cat([real_edge_weight, fake_edge_weight])
+                z = self.model_s.get_embeds(self.x, self.edge_index, self.edge_weight)
 
                 s_pred, loss_s = self.forward_classifier(self.model_s, (self.x, self.edge_index, self.edge_weight), 
                                                          training_labels, train_mask)
-
-                loss = loss_s + loss_mask + loss_lp
+                loss = loss_s + loss_lp + loss_mask
                 loss.backward()
                 optimizer.step()
 
@@ -215,13 +248,32 @@ class CoG(nn.Module):
 
                     # aft = k_hop_subgraph(torch.cat([torch.LongTensor(idx_train), torch.arange(len(idx_train))+self.n_real]).to(self.device), 2, self.edge_index)[0].shape[0] / self.x.shape[0]
                     # aft = round(aft, 4)
-                    print(accs, train_mask.shape[0], self.edge_index.shape[1], real_edge_index.shape[1], loss.item(), best_acc, best_test_acc)
+                    print(accs, train_mask.shape[0], self.edge_index.shape[1], real_edge_index.shape[1], loss_lp.item(), best_acc, best_test_acc)
 
+            mask = train_mask[train_mask<self.n_real]
+            pred = logits[mask].max(1)[1]
+            misclass_nodes = torch.where(pred != labels[mask])[0]
             
-            fake_adj = _similarity(embeddings)
+            same = []
+            diff = []
+            if misclass_nodes.size(0) > 0 :
+                for misclass_node in misclass_nodes:
+                    fake_adj = _similarity(z[label_dict[pred[misclass_node].item()]], z[misclass_node].unsqueeze(0))
+                    diff.append(fake_adj.detach().cpu().flatten().mean().item())
+
+                    fake_adj = _similarity(z[label_dict[labels[misclass_node].item()]], z[misclass_node].unsqueeze(0))
+                    same.append(fake_adj.detach().cpu().flatten().mean().item())
+
             plt.figure()
-            sns.histplot(data=fake_adj[tuple(real_edge_index[:, real_mask])].detach().cpu(), bins=30, color='skyblue', stat='count')
-            sns.histplot(data=fake_adj[tuple(real_edge_index[:, ~real_mask])].detach().cpu(), bins=30, color='red', stat='count', alpha=0.6)
+            sns.histplot(data=same, bins=30, color='skyblue', stat='count')
+            sns.histplot(data=diff, bins=30, color='red', stat='count', alpha=0.6)
+
+            plt.savefig(f'./image/testplt_{i}.jpg')
+
+            # fake_adj = _similarity(embeddings)
+            # plt.figure()
+            # sns.histplot(data=fake_adj[tuple(real_edge_index[:, real_mask])].detach().cpu(), bins=30, color='skyblue', stat='count')
+            # sns.histplot(data=fake_adj[tuple(real_edge_index[:, ~real_mask])].detach().cpu(), bins=30, color='red', stat='count', alpha=0.6)
             # a = torch.isin(torch.arange(self.n_real), torch.unique(new_edge_index).cpu())
             # disconnect = torch.arange(self.n_real)[~a]
             # connect = torch.arange(self.n_real)[a]
@@ -232,7 +284,7 @@ class CoG(nn.Module):
             # acc_connect = (logits[connect].max(1)[1]).eq(labels[connect]).sum().item() / len(connect)
             # plt.title(f'{len(disconnect)}, {acc_disconnect*100:.2f}%, {len(connect)} {acc_connect*100:.2f}, {torch.isin(disconnect, train_mask.cpu()).sum().item()}\n\
             #             {(torch.isin(real_edge_index[0, fake_adj[tuple(real_edge_index)]<0.2].cpu(), disconnect)+torch.isin(real_edge_index[1, fake_adj[tuple(real_edge_index)]<0.2].cpu(), disconnect)).sum().item()}')
-            plt.savefig(f'./image/testplt_{i}.jpg')
+            # plt.savefig(f'./image/testplt_{i}.jpg')
 
             # except:
             #     plt.close()
@@ -262,7 +314,40 @@ class CoG(nn.Module):
                         self.edge_mask[idx] = True
             except:
                 pass
-        
+            
+            a1 = 0
+            b1 = 0
+            c1 = 0
+            d1 = 0
+            if len(self.pseudo_nodes_list)>0:
+                for node in self.pseudo_nodes_list:
+                    max_value = -2
+                    class_ = -1
+                    for c, ns in label_dict.items():
+                        value = _similarity(z[ns], z[node].unsqueeze(0)).mean()
+                        if max_value < value:
+                            max_value = value
+                            class_ = c
+
+                    if training_labels[node] != class_:
+                        a1 += 1
+                        if labels[node] == class_:
+                            b1 += 1
+                        if labels[node] == training_labels[node]:
+                            c1 += 1
+                    else:
+                        d1 += 1
+
+                    # training_labels[node] = class_
+
+                        
+
+            print()
+            print()
+            print(f'不一樣的{a1}, 我答對的{b1}, 原本答對的{c1}, 都猜一樣的{d1}')
+            print()
+            print()
+
         # from sklearn.manifold import TSNE
         # colors = [
         #     '#ffc0cb', '#bada55', '#008080', '#420420', '#7fe5f0', '#065535',
@@ -276,9 +361,9 @@ class CoG(nn.Module):
         # plt.savefig(f'./image/tsne.png')
         # torch.save(train_acc, './image/train_acc_mask_update')
 
-        self.restore_all(x, best_model_s_wts, best_model_g_wts, real_edge_index, real_edge_weight, fake_edge_index_0, training_labels, train_mask, idx_train)
+        self.restore_all(x, best_model_s_wts, best_model_g_wts, real_edge_index, real_edge_weight, training_labels, train_mask, idx_train)
 
-    def restore_all(self, x, model_s_wts, model_g_wts, real_edge_index, real_edge_weight, fake_edge_index_0, training_labels, train_mask, idx_train):
+    def restore_all(self, x, model_s_wts, model_g_wts, real_edge_index, real_edge_weight, training_labels, train_mask, idx_train):
         
         self.model_s.load_state_dict(model_s_wts)
         self.graph_learner.load_state_dict(model_g_wts)
@@ -286,24 +371,24 @@ class CoG(nn.Module):
         self.graph_learner.eval()
         self.model_s.eval()
 
-        # embeddings = self.graph_learner.internal_forward(self.x)
+        embeddings = self.graph_learner.internal_forward(self.x)
         # new_edge_index, new_edge_weight, edge_mask = self.delete_edges(real_edge_index, embeddings)
 
         # z1 = self.model_s.get_embeds(self.x, new_edge_index)
         # z2 = self.model_s.get_embeds(self.x, real_edge_index)
 
-        z = self.model_s.get_embeds(self.x, real_edge_index, None)
-        fake_edge_index, fake_edge_weight = knn_fast(z, self.k, 1000, self.device)
+        # z = self.model_s.get_embeds(self.x, real_edge_index, None)
+        fake_edge_index, fake_edge_weight = knn_fast(embeddings, self.k, 1000, self.device)
         fake_edge_index, fake_edge_weight = add_edges(fake_edge_index, fake_edge_weight, 
-                                                      training_labels, train_mask, self.n_real, mode='mix')
+                                                      training_labels, train_mask, self.n_real, mode='mix', threshold=0.6)
 
-        self.edge_index = torch.cat([real_edge_index, fake_edge_index_0, fake_edge_index], -1)
-        self.edge_weight = torch.cat([real_edge_weight, torch.ones_like(fake_edge_index_0[0]), fake_edge_weight])
+        self.edge_index = torch.cat([real_edge_index, fake_edge_index], -1)
+        self.edge_weight = torch.cat([real_edge_weight, fake_edge_weight])
 
         # self.edge_index = torch.cat([real_edge_index, fake_edge_index], -1)
         # self.edge_weight = torch.cat([real_edge_weight, fake_edge_weight])
 
-    def add_nodes(self, train_mask, n=50):
+    def add_nodes(self, train_mask, n=100):
         mask = torch.isin(torch.arange(self.n_real).to(self.device), train_mask)
         unlabel_nodes = torch.where(~mask)[0]
 
@@ -423,15 +508,15 @@ class GCN(nn.Module):
                     num_mask_nodes = int(mask_rate * num_nodes)
                     mask_nodes = perm[:num_mask_nodes]
                 out_x = x.clone()
+                self.mask_nodes = mask_nodes
             else:
                 out_x = x
 
-            if mask:
+            if mask_rate!=None or mask_nodes!=None:
                 out_x[mask_nodes] = 0
 
             if mask_rate:
                 out_x[mask_nodes] += self.mask_feature
-            
         else:
             out_x = x
 

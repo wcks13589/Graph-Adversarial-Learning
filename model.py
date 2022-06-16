@@ -27,7 +27,9 @@ class Defender():
         elif self.defender == 'NewCoG':
             # from Defense.CoG_Series.CoG_LP_Edge_Mix_Step import CoG
             # from Defense.Mask_Edge_Mix_0606 import CoG
+            # from Defense.CoG_Series.CoG_LP_Edge_Mix_Step import CoG
             from Defense.Meeting_0607.Edge_Mix_New_Create_Nodes import CoG
+            # from Defense.Meeting_0614.Edge_Mix_New_Pretrain import CoG
             model = CoG(nfeat=nfeat, nhid=self.args.hidden, nclass=nclass, 
                         dropout=self.args.dropout,lr=self.args.lr, weight_decay=self.args.weight_decay, 
                         device=self.device).to(self.device)

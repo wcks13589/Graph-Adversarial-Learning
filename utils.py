@@ -173,6 +173,7 @@ def recons_loss(z, edge_index, edge_mask=None, sample_ratio=5):
 
 def add_edges(fake_edge_index, fake_edge_weight, training_labels, train_mask, n_real, threshold=0.7, mode='mix'):
     edge_mask = (fake_edge_index[0] >= n_real) + (fake_edge_index[1] >= n_real)
+    # edge_mask = torch.isin(fake_edge_index[0], n_real) + torch.isin(fake_edge_index[1], n_real)
     if mode == 'mix':
         train_label_mask = torch.logical_and(torch.isin(fake_edge_index[0], train_mask), torch.isin(fake_edge_index[1], train_mask))
         

@@ -158,7 +158,7 @@ def main(args):
 if __name__ == '__main__':
     for dataset in ['cora', 'citeseer']:
         args.dataset = dataset
-        for rate in [0.15]:
+        for rate in [0.2]:
             args.ptb_rate = rate
             setting = ['Clean', 'Evasion', 'Poison', 'Confusion']
             result = {x:[] for x in setting}
