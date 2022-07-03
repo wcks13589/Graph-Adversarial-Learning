@@ -3,11 +3,12 @@ import torch.nn.functional as F
 import numpy as np
 from torch_geometric.utils import negative_sampling
 
-def _similarity(h1, h2=None):
+def _similarity(h1, h2=None, normalize=True):
     if h2 == None:
         h2 = h1
-    h1 = F.normalize(h1)
-    h2 = F.normalize(h2)
+    if normalize:
+        h1 = F.normalize(h1)
+        h2 = F.normalize(h2)
     return h1 @ h2.t()
 
 
@@ -100,10 +101,11 @@ def seed_everything(seed: int):
     torch.manual_seed(seed)
     torch.cuda.manual_seed(seed)
     torch.backends.cudnn.deterministic = True
-    torch.backends.cudnn.benchmark = True
+    torch.backends.cudnn.benchmark = False
 
-def knn_fast(X, k, b, device):
-    X = F.normalize(X, dim=1, p=2)
+def knn_fast(X, k, b, device, normalize=True):
+    if normalize:
+        X = F.normalize(X, dim=1, p=2)
     index = 0
     values = torch.zeros(X.shape[0] * (k + 1), device=device)
     rows = torch.zeros(X.shape[0] * (k + 1), device=device)
@@ -192,6 +194,9 @@ def add_edges(fake_edge_index, fake_edge_weight, training_labels, train_mask, n_
         train_label_mask = torch.logical_and(torch.isin(fake_edge_index[0], train_mask), torch.isin(fake_edge_index[1], train_mask))
         edge_mask = torch.logical_and(edge_mask, training_labels[fake_edge_index[0]] == training_labels[fake_edge_index[1]])
         edge_mask = torch.logical_and(edge_mask, train_label_mask)
+    
+    else:
+        raise AssertionError('Wrong Mode Name')
     
     fake_edge_index = fake_edge_index[:, edge_mask]
     fake_edge_weight = fake_edge_weight[edge_mask]

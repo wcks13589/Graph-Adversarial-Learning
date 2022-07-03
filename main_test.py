@@ -6,19 +6,21 @@ from deeprobust.graph.data import Dataset
 from deeprobust.graph.utils import preprocess
 
 from model import Defender
-from utils import resplit_data, get_train_val_test
+from utils import resplit_data, get_train_val_test, seed_everything
 
 parser = argparse.ArgumentParser()
 parser.add_argument('--seed', type=int, default=15, help='Random seed')
 parser.add_argument('--dataset', type=str, default='cora', choices=['cora', 'citeseer', 'cora_ml', 'polblogs', 'pubmed', 'acm', 'blogcatalog', 'uai', 'flickr'])
-parser.add_argument('--ptb_rate', type=float, default=0.05, choices=[0.05, 0.1, 0.15, 0.2, 0.25], help='Pertubation rate')
-parser.add_argument('--attacker', type=str, default='meta', choices=['PGD', 'meta', 'Label', 'Class'])
+parser.add_argument('--ptb_rate_nontarget', type=float, default=0.2, choices=[0.05, 0.1, 0.15, 0.2, 0.25], help='Pertubation rate (Metatack, PGD)')
+parser.add_argument('--ptb_rate_target', type=float, default=5.0, choices=[1.0,2.0,3.0,4.0,5.0], help='Pertubation rate (Nettack)')
+parser.add_argument('--attacker', type=str, default='Clean', choices=['Clean', 'PGD', 'meta', 'Label', 'Class', 'nettack'])
 parser.add_argument('--defender', type=str, default='NewCoG', choices=['gcn', 'prognn', 'MyGCN', 'SLAPS', 'CoG', 'NewCoG', 'RSGNN'])
+parser.add_argument('--verbose', action="store_false", default=False)
 
 # model training setting
 parser.add_argument('--lr', type=float, default=0.001, help='Learning rate')
 parser.add_argument('--weight_decay', type=float, default=5e-4, help='Weight decay (L2 loss on parameters).')
-parser.add_argument('---hidden', type=int, default=64, help='Number of hidden units.')
+parser.add_argument('--hidden', type=int, default=64, help='Number of hidden units.')
 parser.add_argument('--dropout', type=float, default=0.5, help='Dropout rate (1 - keep probability).')
 
 # PGD setting
@@ -48,30 +50,56 @@ parser.add_argument('--iterations', type=int,  default=20, help='Number of itera
 # Argument Initialization
 args = parser.parse_args([])
 
+if args.defender == 'RSGNN':
+    feature_normalize = False
+else:
+    feature_normalize = False
+
 def main(args):
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     # device = torch.device("cpu")
-    np.random.seed(args.seed)
-    torch.manual_seed(args.seed)
-    if device != 'cpu':
-        torch.cuda.manual_seed(args.seed)
+    # np.random.seed(args.seed)
+    # torch.manual_seed(args.seed)
+    # if device != 'cpu':
+    #     torch.cuda.manual_seed(args.seed)
+    seed_everything(args.seed)
 
     # Prepare Data
     data = Dataset(root='./data/', name=args.dataset, setting='prognn')
-    adj, features, labels = preprocess(data.adj, data.features, data.labels, preprocess_feature=True, device=device)
+    adj, features, labels = preprocess(data.adj, data.features, data.labels, preprocess_feature=feature_normalize, device=device)
+    n_samples, n_features = features.shape
     # idx_train, idx_val, idx_test = data.idx_train, data.idx_val, data.idx_test
     idx_train, idx_val, idx_test = resplit_data(data.idx_train, data.idx_val, data.idx_test, data.labels)
     # idx_train, idx_val, idx_test = get_train_val_test(features.shape[0], stratify=data.labels)
-    print(idx_train.shape[0], idx_val.shape[0], idx_test.shape[0])
+    print(sum(idx_train))
 
-    n_perturbations = int(args.ptb_rate * torch.div(adj.sum(), 2))
+    if args.attacker in ['meta', 'nettack']:
+        from deeprobust.graph.data import PrePtbDataset
+        if args.attacker == 'meta':
+            ptb_rate = args.ptb_rate_nontarget
+        elif args.attacker == 'nettack':
+            ptb_rate = args.ptb_rate_target
+
+        perturbed_data = PrePtbDataset(root='./pertubed_data/',
+                                       name=args.dataset,
+                                       attack_method=args.attacker,
+                                       ptb_rate=ptb_rate)
+        if args.attacker == 'nettack':
+            idx_test = np.array(perturbed_data.target_nodes)
+
+        modified_adj = perturbed_data.adj
+        modified_adj, features, labels = preprocess(modified_adj, data.features, data.labels, preprocess_feature=feature_normalize, device=device)
+        noise_labels = labels
+
+    classes, counts = np.unique(data.labels[idx_train], return_counts=True)
+    print(idx_train.shape[0], idx_val.shape[0], idx_test.shape[0], classes.shape[0], dict(zip(classes, counts)))
 
     # Model Initialization
     model = Defender(args, device)
 
     # (1) Evaluate on Clean Data
     print('=== (1) Evaluate on Clean Data ===')
-    if args.attacker == 'meta':
+    if args.attacker == 'Clean':
         model.fit(features, adj, labels, idx_train, idx_val, idx_test)
         acc_clean = model.test(labels, idx_test, args.attacker)
         print(acc_clean)
@@ -82,19 +110,9 @@ def main(args):
     # print('=== (2) Evaluate on Perturbed Data - Evasion Attack ===')
 
     # Generate Bad Graph
-    if args.attacker == 'meta':
-        from deeprobust.graph.data import PrePtbDataset
-        perturbed_data = PrePtbDataset(root='./pertubed_data/',
-                                        name=args.dataset,
-                                        attack_method=args.attacker,
-                                        ptb_rate=args.ptb_rate)
-        modified_adj = perturbed_data.adj
-        modified_adj, features, labels = preprocess(modified_adj, data.features, data.labels, preprocess_feature=True, device=device)
-        noise_labels = labels
-
-    elif args.attacker == 'PGD':
+    if args.attacker == 'PGD':
         from Attack.PGD import NewPGDAttack
-        n_samples, n_features = features.shape
+        n_perturbations = int(args.ptb_rate_nontarget * torch.div(adj.sum(), 2))
 
         if args.defender == 'prognn':
             surrogate = Defender(args, device, surrogate=True)
@@ -124,7 +142,7 @@ def main(args):
 
     elif args.attacker == 'Label':
         from Attack.Label import noisify_labels
-        noise_labels = noisify_labels(labels, idx_train, idx_val, args.ptb_rate)
+        noise_labels = noisify_labels(labels, idx_train, idx_val, args.ptb_rate_nontarget)
         modified_adj = adj
 
     elif args.attacker == 'Class':
@@ -135,7 +153,7 @@ def main(args):
         classes, counts = np.unique(noise_labels.cpu().numpy()[idx_train], return_counts=True)
         print(idx_train.shape[0], idx_val.shape[0], idx_test.shape[0], classes.shape[0], dict(zip(classes, counts)))
 
-    if args.defender == 'prognn' or args.attacker in ['PGD', 'Label', 'Class']:
+    if args.defender == 'prognn' or args.attacker in ['Clean','PGD', 'Label', 'Class', 'nettack', 'meta']:
         print('Sorry ProGNN do not support evasion attack test')
         acc_evasion = 0
     else:
@@ -143,23 +161,26 @@ def main(args):
 
     # (3) Evaluate on Perturbed Data - Poison Attack
     print('=== (3) Evaluate on Perturbed Data - Poison Attack ===')
-    model.fit(features, modified_adj, noise_labels, idx_train, idx_val, idx_test)
-    acc_poison = model.test(noise_labels, idx_test, args.attacker)
+    if args.attacker == 'Clean':
+        acc_poison = 0
+    else:
+        model.fit(features, modified_adj, noise_labels, idx_train, idx_val, idx_test)
+        acc_poison = model.test(labels, idx_test, args.attacker)
 
-    cm = model.confusion(noise_labels, idx_test)
+    cm = model.confusion(labels, idx_test)
     print(f'New Seed is {args.seed}')
     print(f'Clean Graph: {acc_clean:.4f}')
     print(f'Evasion Graph: {acc_evasion:.4f}')
     print(f'Poison Graph: {acc_poison:.4f}')
-    print(f'Confusion model:\n{cm}')
+    # print(f'Confusion model:\n{cm}')
     
     return acc_clean, acc_evasion, acc_poison, cm
 
 if __name__ == '__main__':
-    for dataset in ['cora', 'citeseer']:
+    for dataset in ['cora', 'cora_ml', 'citeseer']:
         args.dataset = dataset
         for rate in [0.2]:
-            args.ptb_rate = rate
+            args.ptb_rate_nontarget = rate
             setting = ['Clean', 'Evasion', 'Poison', 'Confusion']
             result = {x:[] for x in setting}
 

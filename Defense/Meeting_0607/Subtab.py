@@ -35,7 +35,7 @@ class CoG(nn.Module):
         self.verbose = verbose
         
     def init_models(self):
-
+        
         self.graph_learner = MLP(self.nfeat, self.nhid, self.nhid)
         self.decoder = GCN(self.nhid, self.nhid, self.nfeat, self.nhid, mask=True)
         self.model_s = GCN(self.nfeat, self.nhid, self.nhid, self.n_class, mask=True)
@@ -187,9 +187,9 @@ class CoG(nn.Module):
 
                 # self.edge_index = real_edge_index
                 # self.edge_weight = real_edge_weight
-                # new_edge_index, new_edge_weight, edge_mask = self.delete_edges(real_edge_index, embeddings, 0.4)
-                self.edge_index = torch.cat([real_edge_index, fake_edge_index], -1)
-                self.edge_weight = torch.cat([real_edge_weight, fake_edge_weight])
+                new_edge_index, new_edge_weight, edge_mask = self.delete_edges(real_edge_index, embeddings, 0.5)
+                self.edge_index = torch.cat([new_edge_index, fake_edge_index], -1)
+                self.edge_weight = torch.cat([new_edge_weight, fake_edge_weight])
 
                 mask_nodes, unmask_nodes = self.create_mask_nodes(0.5)
                 # hop_nodes = k_hop_subgraph(mask_nodes, 2, real_edge_index)[0]

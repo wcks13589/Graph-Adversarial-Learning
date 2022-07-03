@@ -1,0 +1,36 @@
+import numpy as np
+from deeprobust.graph.defense import GCN
+from deeprobust.graph.targeted_attack import Nettack
+
+from tqdm import tqdm
+
+class Nettack():
+    def __init__(self, model, features, adj, labels, idx_train, idx_val, idx_test, device) -> None:
+
+        self.surrogate = GCN(nfeat=features.size(1), nclass=labels.max().item()+1,
+                             nhid=16, dropout=0).to(device)
+        self.surrogate.fit(features, adj, labels, idx_train, idx_val, patience=30)
+
+        self.model = model
+
+        self.device = device
+
+    def sample_attacked_nodes(self, n_nodes, ptb_rate):
+        attacked_nodes = np.arange(n_nodes)
+        np.random.shuffle(attacked_nodes)
+        attacked_nodes = attacked_nodes[:int(ptb_rate*len(attacked_nodes))]
+
+        return attacked_nodes
+
+    def fit(self, features, adj, labels, idx_train, idx_val, idx_test, ptb_rate):
+        attacked_nodes = self.sample_attacked_nodes(features.size(0), ptb_rate)
+        print(f'=== [Poisoning] Attacking {len(self.attacked_nodes)} nodes respectively ===')
+        for target_node in tqdm(attacked_nodes):
+            n_perturbations = int(degrees[target_node])
+            attacker = Nettack(self.surrogate, nnodes=adj.shape[0], attack_structure=True, attack_features=False, device=self.device).to(self.device)
+            attacker.attack(features, adj, labels, target_node, n_perturbations, verbose=False)
+            modified_adj = attacker.modified_adj
+
+            acc = single_test(modified_adj, features, target_node)
+
+    def sin

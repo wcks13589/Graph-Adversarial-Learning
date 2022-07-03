@@ -9,6 +9,8 @@ class Defender():
         if surrogate:
             self.defender = 'gcn'
 
+        self.verbose = args.verbose
+
     def init_model(self, features, labels):
 
         nfeat = features.shape[1]
@@ -25,17 +27,15 @@ class Defender():
                         dropout=self.args.dropout,lr=self.args.lr, 
                         weight_decay=self.args.weight_decay, device=self.device).to(self.device)
         elif self.defender == 'NewCoG':
-            # from Defense.CoG_Series.CoG_LP_Edge_Mix_Step import CoG
-            # from Defense.Mask_Edge_Mix_0606 import CoG
-            # from Defense.CoG_Series.CoG_LP_Edge_Mix_Step import CoG
+            # from Defense.Meeting_0614.RSGNN import CoG
             from Defense.Meeting_0607.Edge_Mix_New_Create_Nodes import CoG
-            # from Defense.Meeting_0614.Edge_Mix_New_Pretrain import CoG
+            # from Defense.Meeting0628.again import CoG
             model = CoG(nfeat=nfeat, nhid=self.args.hidden, nclass=nclass, 
-                        dropout=self.args.dropout,lr=self.args.lr, weight_decay=self.args.weight_decay, 
-                        device=self.device).to(self.device)
+                        dropout=self.args.dropout,lr=self.args.lr,weight_decay=self.args.weight_decay, 
+                        verbose=self.verbose, device=self.device).to(self.device)
 
         elif self.defender == 'RSGNN':
-            from Defense.RSGNN import RSGNN
+            from Defense.Meeting_0614.RSGNN_Pseudo import RSGNN
             model = RSGNN(nfeat=nfeat, nhid=self.args.hidden, nclass=nclass, 
                           dropout=self.args.dropout,lr=self.args.lr, 
                           weight_decay=self.args.weight_decay, device=self.device).to(self.device)

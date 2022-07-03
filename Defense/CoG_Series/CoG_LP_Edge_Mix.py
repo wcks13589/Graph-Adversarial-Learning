@@ -29,7 +29,6 @@ class CoG(nn.Module):
     def init_models(self):
 
         self.graph_learner = MLP_learner(2, self.nfeat, self.k)
-        self.gcl = GCL(self.nfeat, 512, 128)
         self.model_s = GCN(self.nfeat, self.nhid, self.n_class)
 
     def init_label_ratio(self, labels, idx_train):
@@ -49,7 +48,7 @@ class CoG(nn.Module):
             logit = model(*x)
             return logit, F.nll_loss(logit[mask], labels[mask])
 
-    def fit(self, x, adj, labels, idx_train, idx_val=None, idx_test=None, epochs=200, iteration=40, fake_ratio=1):
+    def fit(self, x, adj, labels, idx_train, idx_val=None, idx_test=None, epochs=200, iteration=25, fake_ratio=1):
 
         train_mask = torch.LongTensor(idx_train)
         training_labels = labels.clone()
@@ -57,8 +56,7 @@ class CoG(nn.Module):
         self.init_label_ratio(labels, idx_train)
         
         optimizer = torch.optim.Adam(list(self.model_s.parameters())+\
-                                     list(self.graph_learner.parameters())+
-                                     list(self.gcl.parameters()),
+                                     list(self.graph_learner.parameters()),
                                      lr=self.lr, weight_decay=self.weight_decay)
         self.n_real = x.shape[0]
         self.x = torch.cat([x, x[idx_train].repeat(fake_ratio, 1)])
@@ -71,7 +69,6 @@ class CoG(nn.Module):
         self.edge_weight = adj[tuple(real_edge_index)]
 
         best_acc = 0
-        embeds = []
         for i in trange(iteration):
             for epoch in range(epochs):
                 optimizer.zero_grad()
@@ -81,7 +78,7 @@ class CoG(nn.Module):
                 loss = recons_loss(embeddings[:self.n_real], real_edge_index)
                 
                 fake_edge_index, fake_edge_weight = add_edges(fake_edge_index, fake_edge_weight, 
-                                                              training_labels, train_mask, mode='mix')
+                                                              training_labels, train_mask, self.n_real, mode='mix')
                 
                 labels_ = torch.cat([labels, labels[idx_train].repeat(fake_ratio)]) # 監控用
                 T = labels_[fake_edge_index[0]] == labels_[fake_edge_index[1]] # 監控用
@@ -97,21 +94,22 @@ class CoG(nn.Module):
                 loss.backward()
                 optimizer.step()
 
-                if epoch % 20 == 0:
-                    s_pred = self.forward_classifier(self.model_s, (self.x, self.edge_index, self.edge_weight))
-                    accs = []
-                    logits = s_pred
-                    for mask in [train_mask[train_mask<self.n_real], idx_val, idx_test]:
-                        pred = logits[mask].max(1)[1]
-                        acc = pred.eq(labels[mask]).sum().item() / len(mask)
-                        accs.append(acc)
+                
+                s_pred = self.forward_classifier(self.model_s, (self.x, self.edge_index, self.edge_weight))
+                accs = []
+                logits = s_pred
+                for mask in [train_mask[train_mask<self.n_real], idx_val, idx_test]:
+                    pred = logits[mask].max(1)[1]
+                    acc = pred.eq(labels[mask]).sum().item() / len(mask)
+                    accs.append(acc)
 
-                    if accs[1] > best_acc:
-                        best_acc = accs[1]
-                        best_test_acc = accs[2]
-                        best_model_s_wts = copy.deepcopy(self.model_s.state_dict())
-                        best_model_g_wts = copy.deepcopy(self.graph_learner.state_dict())
-                    
+                if accs[1] > best_acc:
+                    best_acc = accs[1]
+                    best_test_acc = accs[2]
+                    best_model_s_wts = copy.deepcopy(self.model_s.state_dict())
+                    best_model_g_wts = copy.deepcopy(self.graph_learner.state_dict())
+
+                if epoch % 20 == 0:
                     print(accs, train_mask.shape[0], T.sum().item(), F.sum().item(), best_acc, best_test_acc)
             
             # # update pseudo label
@@ -133,10 +131,6 @@ class CoG(nn.Module):
 
             self.pseudo_nodes_list.extend(pseudo_nodes.tolist())
 
-            embeds.append(embeddings.unsqueeze(0))
-
-        torch.save(torch.cat(embeds, 0), 'fake_adj_LP_Edge_Mix')
-
         self.restore_all(best_model_s_wts, best_model_g_wts, real_edge_index, real_edge_weight, training_labels, train_mask)
 
     def restore_all(self, model_s_wts, model_g_wts, real_edge_index, real_edge_weight, training_labels, train_mask):
@@ -153,7 +147,7 @@ class CoG(nn.Module):
         self.edge_index = torch.cat([real_edge_index, fake_edge_index], -1)
         self.edge_weight = torch.cat([real_edge_weight, fake_edge_weight])
 
-    def add_nodes(self, train_mask, n=50):
+    def add_nodes(self, train_mask, n=100):
         mask = torch.isin(torch.arange(self.n_real).to(self.device), train_mask)
         unlabel_nodes = torch.where(~mask)[0]
 
