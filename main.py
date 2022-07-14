@@ -9,7 +9,7 @@ from model import Defender
 from utils import resplit_data, get_train_val_test, seed_everything
 
 parser = argparse.ArgumentParser()
-parser.add_argument('--seed', type=int, default=15, help='Random seed')
+parser.add_argument('--seed', type=int, default=16, help='Random seed')
 parser.add_argument('--dataset', type=str, default='cora', choices=['cora', 'citeseer', 'cora_ml', 'polblogs', 'pubmed', 'acm', 'blogcatalog', 'uai', 'flickr'])
 parser.add_argument('--ptb_rate_nontarget', type=float, default=0.2, choices=[0.05, 0.1, 0.15, 0.2, 0.25], help='Pertubation rate (Metatack, PGD)')
 parser.add_argument('--ptb_rate_target', type=float, default=5.0, choices=[1.0,2.0,3.0,4.0,5.0], help='Pertubation rate (Nettack)')
@@ -24,31 +24,34 @@ parser.add_argument('--hidden', type=int, default=64, help='Number of hidden uni
 parser.add_argument('--dropout', type=float, default=0.5, help='Dropout rate (1 - keep probability).')
 
 # PGD setting
-parser.add_argument('--epochs_pgd', type=int,  default=200, help='Number of epochs to train on PGD')
-parser.add_argument('--loss_type', type=str, default='tanhMarginMCE', choices=['CE', 'CW', 'tanhMarginMCE', 'CL'])
-parser.add_argument('--attack_graph', action="store_false", default=True)
-parser.add_argument('--attack_feat', action="store_true", default=False)
+# parser.add_argument('--epochs_pgd', type=int,  default=200, help='Number of epochs to train on PGD')
+# parser.add_argument('--loss_type', type=str, default='tanhMarginMCE', choices=['CE', 'CW', 'tanhMarginMCE', 'CL'])
+# parser.add_argument('--attack_graph', action="store_false", default=True)
+# parser.add_argument('--attack_feat', action="store_true", default=False)
 
 # ProGNN setting
-parser.add_argument('--debug', action='store_true', default=False, help='debug mode')
-parser.add_argument('--only_gcn', action='store_true', default=False, help='test the performance of gcn without other components')
-parser.add_argument('--epochs', type=int,  default=1000, help='Number of epochs to train on ProGNN.')
-parser.add_argument('--alpha', type=float, default=5e-4, help='weight of l1 norm')
-parser.add_argument('--beta', type=float, default=1.5, help='weight of nuclear norm')
-parser.add_argument('--gamma', type=float, default=1, help='weight of l2 norm')
-parser.add_argument('--lambda_', type=float, default=0.001, help='weight of feature smoothing')
-parser.add_argument('--phi', type=float, default=0, help='weight of symmetric loss')
-parser.add_argument('--inner_steps', type=int, default=2, help='steps for inner optimization')
-parser.add_argument('--outer_steps', type=int, default=1, help='steps for outer optimization')
-parser.add_argument('--lr_adj', type=float, default=0.01, help='lr for training adj')
-parser.add_argument('--symmetric', action='store_true', default=False, help='whether use symmetric matrix')
+# parser.add_argument('--debug', action='store_true', default=False, help='debug mode')
+# parser.add_argument('--only_gcn', action='store_true', default=False, help='test the performance of gcn without other components')
+# parser.add_argument('--epochs', type=int,  default=1000, help='Number of epochs to train on ProGNN.')
+# parser.add_argument('--alpha', type=float, default=5e-4, help='weight of l1 norm')
+# parser.add_argument('--beta', type=float, default=1.5, help='weight of nuclear norm')
+# parser.add_argument('--gamma', type=float, default=1, help='weight of l2 norm')
+# parser.add_argument('--lambda_', type=float, default=0.001, help='weight of feature smoothing')
+# parser.add_argument('--phi', type=float, default=0, help='weight of symmetric loss')
+# parser.add_argument('--inner_steps', type=int, default=2, help='steps for inner optimization')
+# parser.add_argument('--outer_steps', type=int, default=1, help='steps for outer optimization')
+# parser.add_argument('--lr_adj', type=float, default=0.01, help='lr for training adj')
+# parser.add_argument('--symmetric', action='store_true', default=False, help='whether use symmetric matrix')
 
 # NewCoG setting
-parser.add_argument('--use_gan', action='store_true', default=False, help='use gan to generate fake node features')
-parser.add_argument('--iterations', type=int,  default=20, help='Number of iteration to add pseudo label to training set.')
+parser.add_argument('--threshold', type=float, default=0.8)
+parser.add_argument('--k', type=int, default=10)
+parser.add_argument('--fake_nodes', '-f', type=int, default=100)
+parser.add_argument('--iteration', type=int, default=10)
+parser.add_argument('--add_labels', type=int, default=250)
 
 # Argument Initialization
-args = parser.parse_args([])
+args = parser.parse_args()
 print(args)
 if args.defender == 'RSGNN':
     feature_normalize = False
@@ -137,7 +140,7 @@ def main(args):
 
     elif args.attacker == 'Label':
         from Attack.Label import noisify_labels
-        noise_labels = noisify_labels(labels, idx_train, idx_val, args.ptb_rate)
+        noise_labels = noisify_labels(labels, idx_train, idx_val, args.ptb_rate_nontarget)
         modified_adj = adj
 
     elif args.attacker == 'Class':
@@ -167,8 +170,17 @@ def main(args):
 
     print(f'Clean Graph: {acc_clean:.4f}')
     print(f'Evasion Graph: {acc_evasion:.4f}')
-    print(f'Poison Graph: {acc_poison:.4f}')
+    print(f'{args.attacker} Graph: {acc_poison:.4f}')
     # print(f'Confusion model:\n{model.confusion(noise_labels, idx_test)}')
 
 if __name__ == '__main__':
     main(args)
+    # fs = [5, 10, 20, 50, 100]
+    # ks = [5, 10, 20, 50, 100]
+    # for f in fs:
+    #     args.fake_nodes = f
+    #     for k in ks:
+    #         if k > f:
+    #             break
+    #         args.k = k
+            # main(args)

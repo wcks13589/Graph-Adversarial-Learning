@@ -1,3 +1,4 @@
+from tabnanny import verbose
 from deeprobust.graph.utils import accuracy
 from sklearn.metrics import confusion_matrix, recall_score
 
@@ -13,24 +14,23 @@ class Defender():
 
     def init_model(self, features, labels):
 
-        nfeat = features.shape[1]
+        nnodes, nfeat = features.shape
         nclass = labels.max().item() + 1
 
-        if self.defender == 'SLAPS':
-            from Defense.SLAPS import SLAPS
-            model = SLAPS(nfeat=nfeat, nclass=nclass, k=20,
-                          dropout=self.args.dropout,lr=self.args.lr, 
-                          weight_decay=self.args.weight_decay).to(self.device)
-        elif self.defender == 'CoG':
+        if self.defender == 'CoG':
             from Defense.CoG_Series.CoG import CoG
             model = CoG(nfeat=nfeat, nhid=self.args.hidden, nclass=nclass, 
                         dropout=self.args.dropout,lr=self.args.lr, 
                         weight_decay=self.args.weight_decay, device=self.device).to(self.device)
         elif self.defender == 'NewCoG':
             # from Defense.Meeting_0614.RSGNN import CoG
-            from Defense.Meeting_0607.Edge_Mix_New_Create_Nodes import CoG
-            # from Defense.Meeting0628.again import CoG
-            model = CoG(nfeat=nfeat, nhid=self.args.hidden, nclass=nclass, 
+            # from Defense.Meeting_0607.Edge_Mix_New_Test import CoG
+            # from Defense.Meeting_0607.Edge_Mix_New_Create_Nodes_Ablation import CoG
+            # from Defense.Final_Version.MyNet import CoG
+            # from Defense.Final_Version.MyNet_Ablation import CoG
+            # from Defense.Final_Version.MyNet_Subtab_V2 import CoG
+            from Defense.Final_Version.MyNet_Label_F import CoG
+            model = CoG(args=self.args, nfeat=nfeat, nhid=self.args.hidden, nclass=nclass, 
                         dropout=self.args.dropout,lr=self.args.lr,weight_decay=self.args.weight_decay, 
                         verbose=self.verbose, device=self.device).to(self.device)
 
@@ -39,6 +39,21 @@ class Defender():
             model = RSGNN(nfeat=nfeat, nhid=self.args.hidden, nclass=nclass, 
                           dropout=self.args.dropout,lr=self.args.lr, 
                           weight_decay=self.args.weight_decay, device=self.device).to(self.device)
+        elif self.defender == 'RGCN':
+            from deeprobust.graph.defense import RGCN
+            model = RGCN(nnodes, nfeat, self.args.hidden, nclass, device=self.device).to(self.device)
+
+        elif self.defender == 'SimPGCN':
+            from deeprobust.graph.defense import SimPGCN
+            model = SimPGCN(nnodes, nfeat, self.args.hidden, nclass, device=self.device).to(self.device)
+        
+        elif self.defender == 'GCN_SVD':
+            from deeprobust.graph.defense import GCNSVD
+            model = GCNSVD(nfeat, self.args.hidden, nclass, device=self.device).to(self.device)
+
+        elif self.defender == 'GCN_Jaccard':
+            from deeprobust.graph.defense import GCNJaccard
+            model = GCNJaccard(nfeat, self.args.hidden, nclass, device=self.device).to(self.device)
         else:
             if self.defender in ['gcn', 'prognn']:
                 from deeprobust.graph.defense import GCN
@@ -62,8 +77,8 @@ class Defender():
 
     def fit(self, features, adj, labels, idx_train, idx_val, idx_test):
         self.model = self.init_model(features, labels)
-        if self.defender in ['gcn', 'prognn']:
-            self.model.fit(features, adj, labels, idx_train, idx_val)
+        if self.defender in ['gcn', 'prognn', 'RGCN', 'SimPGCN', 'GCN_SVD', 'GCN_Jaccard']:
+            self.model.fit(features, adj, labels, idx_train, idx_val, verbose=self.verbose)
         else:
             self.model.fit(features, adj, labels, idx_train, idx_val, idx_test)
 
@@ -78,6 +93,8 @@ class Defender():
                 acc = recall_score(labels[idx_test].cpu().numpy(), y_pred[idx_test].numpy())
             else:
                 acc = self.model.test(self.features, labels, idx_test)
+        elif self.defender in ['RGCN', 'SimPGCN', 'GCN_SVD', 'GCN_Jaccard']:
+            acc = self.model.test(idx_test)
         else:
             self.model.eval()
             output = self.model.predict(features, adj).cpu()

@@ -15,6 +15,8 @@ import seaborn as sns
 
 from torch_geometric.utils import k_hop_subgraph, to_undirected
 
+import itertools
+
 class CoG(nn.Module):
     def __init__(self, nfeat, nhid, nclass, dropout=0.5, lr=0.01, weight_decay=5e-4, verbose=False, device=None) -> None:
         super().__init__()
@@ -35,9 +37,9 @@ class CoG(nn.Module):
         self.verbose = verbose
         
     def init_models(self):
-        
-        self.graph_learner = MLP(self.nfeat, self.nhid, self.nhid)
-        self.decoder = GCN(self.nhid, self.nhid, self.nfeat, self.nhid, mask=True)
+
+        self.graph_learner = Subtab(self.nfeat, self.nhid, self.nhid, n_subsets=3, overlap=0.75, masking_ratio=0.3, device=self.device)
+        self.decoder = GCN(self.nhid, self.nhid, self.nfeat, self.nhid)
         self.model_s = GCN(self.nfeat, self.nhid, self.nhid, self.n_class, mask=True)
         self.encoder_to_decoder = nn.Linear(self.nhid, self.nhid)
 
@@ -116,9 +118,10 @@ class CoG(nn.Module):
             x_fake.append(torch.mm(w, x_class))
             labels_fake.append(torch.LongTensor([c]*n_fake))
 
-            for node in idx_train[labels==c]:
-                edge_fake.append([i, node])
-                edge_fake.append([node, i])
+            for j in range(n_fake):
+                for node in idx_train[labels==c]:
+                    edge_fake.append([i, node])
+                    edge_fake.append([node, i])
                 i += 1
 
         return torch.cat(x_fake), torch.cat(labels_fake).to(self.device), torch.LongTensor(edge_fake).T.to(self.device)
@@ -172,14 +175,39 @@ class CoG(nn.Module):
         # self.x =  torch.cat([x, fake_x]) # torch.cat([x, x])
         # train_mask = torch.cat([train_mask, torch.arange(len(idx_train)).to(self.device)+self.n_real])
         # training_labels = torch.cat([training_labels, fake_labels])
-
+        batch_size = 1244
         best_acc = 0
+
+        n_step_train = self.n_real // batch_size
+        # if self.n_real % batch_size != 0:
+        #     n_step_train += 1
+        
+        n_step_test = self.x.size(0) // batch_size
+        if self.x.size(0) % batch_size != 0:
+            n_step_test += 1
+
         for i in trange(iteration):
-            for epoch in range(200):
+            for epoch in trange(100):
                 optimizer.zero_grad()
-                self.graph_learner.train()
-                embeddings = self.graph_learner.get_embeds(self.x)
-                loss_lp = self.recons_loss(embeddings[:self.n_real], real_edge_index, stepwise=False)
+                j = 0
+                for j in range(n_step_train):
+                    self.graph_learner.train()
+                    start = j*batch_size
+                    end = (j+1)*batch_size
+                    if end > self.n_real:
+                        end = self.n_real
+                    loss_lp = self.graph_learner.calc_loss(self.x[start:end])
+
+                embeddings_list = []
+                for j in range(n_step_test):
+                    start = j*batch_size
+                    end = (j+1)*batch_size
+                    if end > self.x.size(0):
+                        end = self.x.size(0)
+                    embeddings, z = self.graph_learner.get_embeds(self.x[start:end])
+                    embeddings_list.append(embeddings)
+                    embeddings = torch.cat(embeddings_list)
+                # loss_lp = self.recons_loss(embeddings[:self.n_real], real_edge_index, stepwise=False)
 
                 fake_edge_index, fake_edge_weight = knn_fast(embeddings, self.k, 1000, self.device)
                 fake_edge_index, fake_edge_weight = add_edges(fake_edge_index, fake_edge_weight, 
@@ -424,3 +452,259 @@ class GCN(nn.Module):
         x = self.conv2(x, edge_index, edge_weight)
 
         return x
+
+class Subtab(nn.Module):
+    def __init__(self, nfeat, nhid, out_dim, n_subsets, overlap, masking_ratio, add_noise=True, noise_type='swap_noise', noise_level=0.1, device=None):
+        super().__init__()
+        self.n_subsets = n_subsets
+        self.n_column_subset = int(nfeat / n_subsets)
+        self.n_overlap = int(overlap * self.n_column_subset)
+        self.column_idx = list(range(nfeat))
+
+        in_dim = self.n_column_subset+self.n_overlap
+        self.encoder = MLP(in_dim, nhid, out_dim)
+        self.decoder = MLP(out_dim, nhid, in_dim)
+        
+        self.linear_layer1 = nn.Linear(nhid, nhid)
+        self.linear_layer2 = nn.Linear(nhid, nhid)
+
+        self.add_noise = add_noise
+        self.masking_ratio = masking_ratio
+        self.noise_type = noise_type
+        self.noise_level = noise_level
+
+        self.joint_loss = JointLoss(batch_size=1244, temperature=0.2, device=device)
+        self.device = device
+
+        
+    def subset_generator(self, x, combination=True):
+        perm = torch.randperm(self.n_subsets)
+        x_tilde_list = []
+        for i in perm:
+            if i == 0:
+                start_idx = 0
+                stop_idx = self.n_column_subset + self.n_overlap
+            else:
+                start_idx = i * self.n_column_subset - self.n_overlap
+                stop_idx = (i + 1) * self.n_column_subset
+            x_bar = x[:, self.column_idx[start_idx:stop_idx]]
+
+            if self.add_noise:
+                x_bar_noisy = self.generate_noisy_xbar(x_bar).to(self.device)
+                # Generate binary mask
+                mask = torch.LongTensor(np.random.binomial(1, self.masking_ratio, x_bar.shape)).to(self.device)
+                # Replace selected x_bar features with the noisy ones
+                x_bar = x_bar * (1 - mask) + x_bar_noisy * mask
+            # Add the subset to the list
+            x_tilde_list.append(x_bar)
+
+        if combination:
+            x_tilde_list = self.combination(x_tilde_list)
+
+        return x_tilde_list
+
+    def generate_noisy_xbar(self, x):
+        n, dim = x.shape
+        # Initialize corruption array
+        x_bar = torch.zeros([n, dim])
+
+        # Randomly (and column-wise) shuffle data
+        if self.noise_type == "swap_noise":
+            for i in range(dim):
+                idx = torch.randperm(n)
+                x_bar[:, i] = x[idx, i]
+
+        elif self.noise_type == "gaussian_noise":
+            x_bar = x + torch.normal(0, self.noise_level, size=x.size())
+
+        else:
+            x_bar = x_bar
+
+        return x_bar
+
+    def combination(self, x_tilde_list):
+        # np.random.choice(self.n_subsets, 2, )
+        subset_combinations = list(itertools.combinations(x_tilde_list, 2))
+        # List to store the concatenated subsets
+        concatenated_subsets_list = []
+        # Go through combinations
+        for (xi, xj) in subset_combinations:
+            # Concatenate xi, and xj, and turn it into a tensor
+            Xbatch = torch.cat([xi, xj])
+            # Add it to the list
+            concatenated_subsets_list.append(Xbatch)
+            # Return the list of combination of subsets
+
+        return concatenated_subsets_list
+
+    def get_embeds(self, x, normalize=True):
+        x_tilde_list = self.subset_generator(x, combination=False)
+        latent_list = []
+        for xi in x_tilde_list:
+            latent = self.encoder.get_embeds(xi)
+            z = F.leaky_relu(self.linear_layer1(latent))
+            z = self.linear_layer2(z)
+            z = F.normalize(z, p=2, dim=1) if normalize else z
+
+        return latent, z
+
+    def calc_loss(self, x, normalize=True):
+        X_all = torch.cat([x, x])
+        x_tilde_list = self.subset_generator(x, combination=True)
+
+        loss = 0
+        for xi in x_tilde_list:
+            # If we are using combination of subsets use xi since it is already a concatenation of two subsets. 
+            # Else, concatenate subset with itself just to make the computation of loss compatible with the case, 
+            # in which we use the combinations. Note that Xorig is already concatenation of two copies of original input.
+            X_sub = xi if xi.size(0) > x.size(0) else torch.cat([xi, xi])
+
+            latent = self.encoder.get_embeds(X_sub)
+            z = F.leaky_relu(self.linear_layer1(latent))
+            z = self.linear_layer2(z)
+            z = F.normalize(z, p=2, dim=1) if normalize else z
+
+            X_recon = self.decoder.get_embeds(latent)
+
+            tloss, closs, rloss, zloss = self.joint_loss(z, X_recon, X_sub, loss_types=['contrastive','distance'])
+            loss += tloss
+
+        return loss
+
+class JointLoss(nn.Module):
+    """
+    Modifed from: https://github.com/sthalles/SimCLR/blob/master/loss/nt_xent.py
+    When computing loss, we are using a 2Nx2N similarity matrix, in which positve samples are on the diagonal of four
+    quadrants while negatives are all the other samples as shown below in 8x8 array, where we assume batch_size=4.
+                                        P . . . P . . .
+                                        . P . . . P . .
+                                        . . P . . . P .
+                                        . . . P . . . P
+                                        P . . . P . . .
+                                        . P . . . P . .
+                                        . . P . . . P .
+                                        . . . P . . . P
+    """
+
+    def __init__(self, batch_size, temperature, device, cosine=True):
+        super(JointLoss, self).__init__()
+        self.batch_size = batch_size
+        # Temperature to use scale logits
+        self.tau = temperature
+        # Device to use: GPU or CPU
+        self.device = device
+        # initialize softmax
+        self.softmax = torch.nn.Softmax(dim=-1)
+        # Function to generate similarity matrix: Cosine, or Dot product
+        self.similarity_fn = self._cosine_simililarity if cosine else self._dot_simililarity
+        # Loss function
+        self.criterion = torch.nn.CrossEntropyLoss(reduction="sum")
+        self.mask_for_neg_samples = self._get_mask_for_neg_samples().type(torch.bool)
+
+    def _get_mask_for_neg_samples(self):
+        # Diagonal 2Nx2N identity matrix, which consists of four (NxN) quadrants
+        diagonal = np.eye(2 * self.batch_size)
+        # Diagonal 2Nx2N matrix with 1st quadrant being identity matrix
+        q1 = np.eye((2 * self.batch_size), 2 * self.batch_size, k=self.batch_size)
+        # Diagonal 2Nx2N matrix with 3rd quadrant being identity matrix
+        q3 = np.eye((2 * self.batch_size), 2 * self.batch_size, k=-self.batch_size)
+        # Generate mask with diagonals of all four quadrants being 1.
+        mask = torch.from_numpy((diagonal + q1 + q3))
+        # Reverse the mask: 1s become 0, 0s become 1. This mask will be used to select negative samples
+        mask = (1 - mask).type(torch.bool)
+        # Transfer the mask to the device and return
+        return mask.to(self.device)
+
+    @staticmethod
+    def _dot_simililarity(x, y):
+        # Reshape x: (2N, C) -> (2N, 1, C)
+        x = x.unsqueeze(1)
+        # Reshape y: (2N, C) -> (1, C, 2N)
+        y = y.T.unsqueeze(0)
+        # Similarity shape: (2N, 2N)
+        similarity = torch.tensordot(x, y, dims=2)
+        return similarity
+
+    def _cosine_simililarity(self, x, y):
+        similarity = torch.nn.CosineSimilarity(dim=-1)
+        # Reshape x: (2N, C) -> (2N, 1, C)
+        x = x.unsqueeze(1)
+        # Reshape y: (2N, C) -> (1, C, 2N)
+        y = y.unsqueeze(0)
+        # Similarity shape: (2N, 2N)
+        return similarity(x, y)
+
+    def XNegloss(self, representation):
+        # Compute similarity matrix
+        similarity = self.similarity_fn(representation, representation)
+        # Get similarity scores for the positive samples from the diagonal of the first quadrant in 2Nx2N matrix
+        l_pos = torch.diag(similarity, self.batch_size)
+        # Get similarity scores for the positive samples from the diagonal of the third quadrant in 2Nx2N matrix
+        r_pos = torch.diag(similarity, -self.batch_size)
+        # Concatenate all positive samples as a 2nx1 column vector
+        positives = torch.cat([l_pos, r_pos]).view(2 * self.batch_size, 1)
+        # Get similarity scores for the negative samples (samples outside diagonals in 4 quadrants in 2Nx2N matrix)
+        negatives = similarity[self.mask_for_neg_samples].view(2 * self.batch_size, -1)
+        # Concatenate positive samples as the first column to negative samples array
+        logits = torch.cat((positives, negatives), dim=1)
+        # Normalize logits via temperature
+        logits /= self.tau
+        # Labels are all zeros since all positive samples are the 0th column in logits array.
+        # So we will select positive samples as numerator in NTXentLoss
+        labels = torch.zeros(2 * self.batch_size).to(self.device).long()
+        # Compute total loss
+        loss = self.criterion(logits, labels)
+        # Loss per sample
+        closs = loss / (2 * self.batch_size)
+        # Return contrastive loss
+        return closs
+
+    def forward(self, representation, xrecon, xorig, loss_types=[], reconstruction=True):
+        """
+        Args:
+            representation (torch.FloatTensor):
+            xrecon (torch.FloatTensor):
+            xorig (torch.FloatTensor):
+        """
+        # recontruction loss
+        recon_loss = getMSEloss(xrecon, xorig) if reconstruction else getBCELoss(xrecon, xorig)
+
+        # Initialize contrastive and distance losses with recon_loss as placeholder
+        closs, zrecon_loss = recon_loss, recon_loss
+
+        # Start with default loss i.e. reconstruction loss
+        loss = recon_loss
+
+        if 'contrastive' in loss_types:
+            closs = self.XNegloss(representation)
+            loss += closs
+
+        if 'distance' in loss_types:
+            # recontruction loss for z
+            zi, zj = torch.split(representation, self.batch_size)
+            zrecon_loss = getMSEloss(zi, zj)
+            loss += zrecon_loss
+
+        # Return
+        return loss, closs, recon_loss, zrecon_loss
+
+def getMSEloss(recon, target):
+    """
+    Args:
+        recon (torch.FloatTensor):
+        target (torch.FloatTensor):
+    """
+    dims = list(target.size())
+    bs = dims[0]
+    loss = torch.sum(torch.square(recon - target)) / bs
+    return loss
+
+def getBCELoss(prediction, label):
+    """
+    Args:
+        prediction (torch.FloatTensor):
+        label (torch.FloatTensor):
+    """
+    dims = list(prediction.size())
+    bs = dims[0]
+    return F.binary_cross_entropy(prediction, label, reduction='sum') / bs

@@ -10,11 +10,11 @@ from utils import resplit_data, get_train_val_test, seed_everything
 
 parser = argparse.ArgumentParser()
 parser.add_argument('--seed', type=int, default=15, help='Random seed')
-parser.add_argument('--dataset', type=str, default='cora', choices=['cora', 'citeseer', 'cora_ml', 'polblogs', 'pubmed', 'acm', 'blogcatalog', 'uai', 'flickr'])
+parser.add_argument('--dataset', type=str, default='citeseer', choices=['cora', 'citeseer', 'cora_ml', 'polblogs', 'pubmed', 'acm', 'blogcatalog', 'uai', 'flickr'])
 parser.add_argument('--ptb_rate_nontarget', type=float, default=0.2, choices=[0.05, 0.1, 0.15, 0.2, 0.25], help='Pertubation rate (Metatack, PGD)')
 parser.add_argument('--ptb_rate_target', type=float, default=5.0, choices=[1.0,2.0,3.0,4.0,5.0], help='Pertubation rate (Nettack)')
-parser.add_argument('--attacker', type=str, default='Clean', choices=['Clean', 'PGD', 'meta', 'Label', 'Class', 'nettack'])
-parser.add_argument('--defender', type=str, default='NewCoG', choices=['gcn', 'prognn', 'MyGCN', 'SLAPS', 'CoG', 'NewCoG', 'RSGNN'])
+parser.add_argument('--attacker', type=str, default='meta', choices=['Clean', 'PGD', 'meta', 'Label', 'Class', 'nettack'])
+parser.add_argument('--defender', type=str, default='NewCoG', choices=['gcn', 'prognn', 'MyGCN', 'CoG', 'NewCoG', 'RSGNN', 'RGCN', 'SimPGCN', 'GCN_SVD', 'GCN_Jaccard'])
 parser.add_argument('--verbose', action="store_false", default=False)
 
 # model training setting
@@ -24,10 +24,10 @@ parser.add_argument('--hidden', type=int, default=64, help='Number of hidden uni
 parser.add_argument('--dropout', type=float, default=0.5, help='Dropout rate (1 - keep probability).')
 
 # PGD setting
-parser.add_argument('--epochs_pgd', type=int,  default=200, help='Number of epochs to train on PGD')
-parser.add_argument('--loss_type', type=str, default='CE', choices=['CE', 'CW', 'tanhMarginMCE', 'CL'])
-parser.add_argument('--attack_graph', action="store_false", default=True)
-parser.add_argument('--attack_feat', action="store_true", default=False)
+# parser.add_argument('--epochs_pgd', type=int,  default=200, help='Number of epochs to train on PGD')
+# parser.add_argument('--loss_type', type=str, default='CE', choices=['CE', 'CW', 'tanhMarginMCE', 'CL'])
+# parser.add_argument('--attack_graph', action="store_false", default=True)
+# parser.add_argument('--attack_feat', action="store_true", default=False)
 
 # ProGNN setting
 parser.add_argument('--debug', action='store_true', default=False, help='debug mode')
@@ -44,11 +44,14 @@ parser.add_argument('--lr_adj', type=float, default=0.01, help='lr for training 
 parser.add_argument('--symmetric', action='store_true', default=False, help='whether use symmetric matrix')
 
 # NewCoG setting
-parser.add_argument('--use_gan', action='store_true', default=False, help='use gan to generate fake node features')
-parser.add_argument('--iterations', type=int,  default=20, help='Number of iteration to add pseudo label to training set.')
+parser.add_argument('--threshold', type=float, default=0.8)
+parser.add_argument('--k', type=int, default=5)
+parser.add_argument('-f', '--fake_nodes', type=int, default=10)
+parser.add_argument('--iteration', type=int, default=10)
+parser.add_argument('--add_labels', type=int, default=250)
 
 # Argument Initialization
-args = parser.parse_args([])
+args = parser.parse_args()
 
 if args.defender == 'RSGNN':
     feature_normalize = False
@@ -56,22 +59,22 @@ else:
     feature_normalize = False
 
 def main(args):
+    print(args)
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     # device = torch.device("cpu")
-    # np.random.seed(args.seed)
-    # torch.manual_seed(args.seed)
-    # if device != 'cpu':
-    #     torch.cuda.manual_seed(args.seed)
     seed_everything(args.seed)
 
     # Prepare Data
     data = Dataset(root='./data/', name=args.dataset, setting='prognn')
-    adj, features, labels = preprocess(data.adj, data.features, data.labels, preprocess_feature=feature_normalize, device=device)
+    if args.defender in ['RGCN', 'SimPGCN', 'GCN_SVD', 'GCN_Jaccard']:
+        adj, features, labels = data.adj, data.features, data.labels
+    else:
+        adj, features, labels = preprocess(data.adj, data.features, data.labels, preprocess_feature=feature_normalize, device=device)
     n_samples, n_features = features.shape
     # idx_train, idx_val, idx_test = data.idx_train, data.idx_val, data.idx_test
     idx_train, idx_val, idx_test = resplit_data(data.idx_train, data.idx_val, data.idx_test, data.labels)
     # idx_train, idx_val, idx_test = get_train_val_test(features.shape[0], stratify=data.labels)
-    print(sum(idx_train))
+    # print(sum(idx_train))
 
     if args.attacker in ['meta', 'nettack']:
         from deeprobust.graph.data import PrePtbDataset
@@ -87,18 +90,20 @@ def main(args):
         if args.attacker == 'nettack':
             idx_test = np.array(perturbed_data.target_nodes)
 
-        modified_adj = perturbed_data.adj
-        modified_adj, features, labels = preprocess(modified_adj, data.features, data.labels, preprocess_feature=feature_normalize, device=device)
+        if args.defender in ['RGCN', 'SimPGCN', 'GCN_SVD', 'GCN_Jaccard']:
+            modified_adj, features, labels = perturbed_data.adj, data.features, data.labels
+        else:
+            modified_adj, features, labels = preprocess(perturbed_data.adj, data.features, data.labels, preprocess_feature=feature_normalize, device=device)
         noise_labels = labels
 
     classes, counts = np.unique(data.labels[idx_train], return_counts=True)
-    print(idx_train.shape[0], idx_val.shape[0], idx_test.shape[0], classes.shape[0], dict(zip(classes, counts)))
+    # print(idx_train.shape[0], idx_val.shape[0], idx_test.shape[0], classes.shape[0], dict(zip(classes, counts)))
 
     # Model Initialization
     model = Defender(args, device)
 
     # (1) Evaluate on Clean Data
-    print('=== (1) Evaluate on Clean Data ===')
+    # print('=== (1) Evaluate on Clean Data ===')
     if args.attacker == 'Clean':
         model.fit(features, adj, labels, idx_train, idx_val, idx_test)
         acc_clean = model.test(labels, idx_test, args.attacker)
@@ -154,46 +159,61 @@ def main(args):
         print(idx_train.shape[0], idx_val.shape[0], idx_test.shape[0], classes.shape[0], dict(zip(classes, counts)))
 
     if args.defender == 'prognn' or args.attacker in ['Clean','PGD', 'Label', 'Class', 'nettack', 'meta']:
-        print('Sorry ProGNN do not support evasion attack test')
+        # print('Sorry ProGNN do not support evasion attack test')
         acc_evasion = 0
     else:
         acc_evasion = model.test(labels, idx_test, args.attacker, features, modified_adj)
 
     # (3) Evaluate on Perturbed Data - Poison Attack
-    print('=== (3) Evaluate on Perturbed Data - Poison Attack ===')
+    # print('=== (3) Evaluate on Perturbed Data - Poison Attack ===')
     if args.attacker == 'Clean':
         acc_poison = 0
     else:
         model.fit(features, modified_adj, noise_labels, idx_train, idx_val, idx_test)
         acc_poison = model.test(labels, idx_test, args.attacker)
 
-    cm = model.confusion(labels, idx_test)
+    # cm = model.confusion(labels, idx_test)
     print(f'New Seed is {args.seed}')
     print(f'Clean Graph: {acc_clean:.4f}')
     print(f'Evasion Graph: {acc_evasion:.4f}')
-    print(f'Poison Graph: {acc_poison:.4f}')
+    print(f'{args.attacker} Graph: {acc_poison:.4f}')
     # print(f'Confusion model:\n{cm}')
     
-    return acc_clean, acc_evasion, acc_poison, cm
+    return acc_clean, acc_evasion, acc_poison, 0
 
 if __name__ == '__main__':
-    for dataset in ['cora', 'cora_ml', 'citeseer']:
+    datasets = ['cora', 'citeseer', 'polblogs']
+    ptb_rates = [0.2]
+    thresholds = [0.8]
+    ks = [5]
+    fs = [10]
+    if args.attacker == 'nettack' and 'cora_ml' in datasets:
+        datasets.remove('cora_ml')
+    for dataset in datasets:
         args.dataset = dataset
-        for rate in [0.2]:
+        for rate in ptb_rates:
             args.ptb_rate_nontarget = rate
             setting = ['Clean', 'Evasion', 'Poison', 'Confusion']
             result = {x:[] for x in setting}
 
-            for seed in range(15, 20):
-                args.seed = seed
-                output = main(args)
-                for i, acc_score in enumerate(output):
-                    result[setting[i]].append(acc_score)
-            
-            print('==' * 20, 'Final Result', '==' * 20)
-            for k, v in result.items():
-                if k == 'Confusion':
-                    continue
-                    print(v)
-                else:
-                    print(f'{k} Graph: {np.mean(v):.4f} ± {np.std(v):.4f}')
+            for threshold in thresholds:
+                args.threshold = threshold
+                for f in fs:
+                    args.fake_nodes = f
+                    for k in ks:
+                        if k > f:
+                            break
+                        args.k = k
+                        for seed in range(15, 20):
+                            args.seed = seed
+                            output = main(args)
+                            for i, acc_score in enumerate(output):
+                                result[setting[i]].append(acc_score)
+                        
+                        print('==' * 20, 'Final Result', '==' * 20)
+                        for k, v in result.items():
+                            if k == 'Confusion':
+                                continue
+                                print(v)
+                            else:
+                                print(f'{k} Graph: {np.mean(v):.4f} ± {np.std(v):.4f}')
