@@ -11,7 +11,6 @@ def _similarity(h1, h2=None, normalize=True):
         h2 = F.normalize(h2)
     return h1 @ h2.t()
 
-
 def resplit_data(idx_train, idx_val, idx_test, labels, ratio=0.01):
     n_nodes = idx_train.shape[0] + idx_val.shape[0] + idx_test.shape[0]
     n_train_old = idx_train.shape[0]

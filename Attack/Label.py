@@ -74,11 +74,10 @@ def noisify_with_P(y_train, nb_classes, noise, random_state=None, noise_type='un
     return torch.LongTensor(y_train), P
     
 def noisify_labels(labels, idx_train, idx_val, noise):
-    device = labels.device
     n_class = labels.max().item()+1
 
-    y_train_noise = noisify_with_P(labels[idx_train].cpu().numpy(), n_class, noise)[0].to(device)
-    y_val_noise = noisify_with_P(labels[idx_val].cpu().numpy(), n_class, noise)[0].to(device)
+    y_train_noise = noisify_with_P(labels[idx_train], n_class, noise)[0]
+    y_val_noise = noisify_with_P(labels[idx_val], n_class, noise)[0]
     
     labels[idx_train] = y_train_noise
     labels[idx_val] = y_val_noise

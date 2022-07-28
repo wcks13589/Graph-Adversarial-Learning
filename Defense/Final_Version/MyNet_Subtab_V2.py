@@ -216,17 +216,17 @@ class CoG(nn.Module):
                 loss_sim = self.graph_learner.calc_loss(self.x, x_tilde_list)
                 embeddings = self.graph_learner.get_embeds(x_tilde_list)
 
-                # mask_nodes, unmask_nodes = self.create_mask_nodes(n=self.n_real, mask_rate=0.2)
-                # self.encoder_to_decoder.train()
-                # self.decoder.train()
-                # z1 = self.encoder_to_decoder(embeddings)
-                # reconst = self.decoder.get_embeds(z1, real_edge_index, None, mask_nodes=mask_nodes)
-                # loss_sim += self.sim_loss(self.x[mask_nodes], reconst[mask_nodes])
+                mask_nodes, unmask_nodes = self.create_mask_nodes(n=self.n_real, mask_rate=0.2)
+                self.encoder_to_decoder.train()
+                self.decoder.train()
+                z1 = self.encoder_to_decoder(embeddings)
+                reconst = self.decoder.get_embeds(z1, real_edge_index, None, mask_nodes=mask_nodes)
+                loss_sim = self.sim_loss(self.x[mask_nodes], reconst[mask_nodes])
 
-                # loss_sim += self.calc_loss(embeddings, train_nodes, train_labels, fake_nodes ,fake_labels)
-                # logit = F.log_softmax(self.output(embeddings), -1)
-                # loss_sim += F.nll_loss(logit[train_nodes], train_labels[train_nodes])
-                loss_sim += self.recons_loss(embeddings, real_edge_index, stepwise=False) * 0.01
+                loss_sim += self.calc_loss(embeddings, train_nodes, train_labels, fake_nodes ,fake_labels)
+                logit = F.log_softmax(self.output(embeddings), -1)
+                loss_sim += F.nll_loss(logit[train_nodes], train_labels[train_nodes])
+                # loss_sim += self.recons_loss(embeddings, real_edge_index, stepwise=False) * 0.01
 
                 knn_edge_index, knn_edge_weight = self.knn(embeddings, self.k, 1000, self.device)
                 fake_edge_index, fake_edge_weight, edge_mask = add_edges(knn_edge_index, knn_edge_weight, train_labels, train_nodes, 

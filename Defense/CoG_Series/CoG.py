@@ -39,7 +39,7 @@ class CoG(nn.Module):
             logit = model(*x)
             return logit
 
-    def fit(self, x, adj, labels, idx_train, idx_val=None, idx_test=None, epochs=200, iteration=60):
+    def fit(self, x, adj, labels, idx_train, idx_val=None, idx_test=None, epochs=200, iteration=10):
         self.x = x
         self.edge_index = adj.nonzero().T
         self.edge_weight = adj[tuple(self.edge_index)]
