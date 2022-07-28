@@ -118,17 +118,17 @@ class CoG(nn.Module):
             pos_nodes = fake_nodes[fake_labels == c]
             neg_nodes = fake_nodes[fake_labels != c]
 
-            n = neg_nodes.size(0)
-            perm = torch.randperm(n)
-            if n > pos_nodes.size(0):
-                n = pos_nodes.size(0)
+            # n = neg_nodes.size(0)
+            # perm = torch.randperm(n)
+            # if n > pos_nodes.size(0):
+            #     n = pos_nodes.size(0)
 
-            neg_nodes = neg_nodes[perm[:n]]
+            # neg_nodes = neg_nodes[perm[:n]]
 
-            pos = _similarity(embeddings[same_class_nodes], embeddings[pos_nodes], normalize=True).flatten()
+            pos = _similarity(embeddings[same_class_nodes], embeddings[pos_nodes], normalize=False).flatten()
             loss += F.mse_loss(pos, torch.ones_like(pos), reduction='mean')
 
-            neg = _similarity(embeddings[same_class_nodes], embeddings[neg_nodes], normalize=True).flatten()
+            neg = _similarity(embeddings[same_class_nodes], embeddings[neg_nodes], normalize=False).flatten()
             loss += F.mse_loss(neg, torch.zeros_like(neg), reduction='mean')
 
         return loss
@@ -180,6 +180,7 @@ class CoG(nn.Module):
         return rec_loss
 
     def fit(self, x, adj, labels, idx_train, idx_val=None, idx_test=None, epochs=200):
+        # real_mask = torch.load('./image/cora_real_mask_0.2')
         idx_train = torch.LongTensor(idx_train).to(self.device)
         self.init_label_dict(labels, idx_train)
 
@@ -217,15 +218,15 @@ class CoG(nn.Module):
                 reconst = self.decoder.get_embeds(z1, real_edge_index, None, mask_nodes=mask_nodes)
                 loss_sim = self.sim_loss(self.x[mask_nodes], reconst[mask_nodes], loss_type='cos')
 
-                # loss_sim = self.calc_loss(embeddings, train_nodes, train_labels, fake_nodes ,fake_labels)
+                # loss_sim = self.calc_loss(embeddings, train_nodes_with_fake, train_labels, fake_nodes ,fake_labels)
                 logit = F.log_softmax(self.output(embeddings), -1)
                 loss_sim += F.nll_loss(logit[train_nodes_with_fake], train_labels[train_nodes_with_fake])
                 # loss_sim += self.recons_loss(embeddings, real_edge_index, stepwise=False) * 0.01
 
+                # new_edge_index, new_edge_weight = drop_edge(embeddings, real_edge_index, 0)
+
+                
                 knn_edge_index, knn_edge_weight = self.knn(embeddings, self.k, 1000, self.device)
-                knn_edge_index_1, knn_edge_weight_1 = knn_fast(embeddings, self.k, 1000, self.device)
-                knn_edge_index = torch.cat([knn_edge_index, knn_edge_index_1], -1)
-                knn_edge_weight = torch.cat([knn_edge_weight, knn_edge_weight_1])
                 fake_edge_index, fake_edge_weight, edge_mask = add_edges(knn_edge_index, knn_edge_weight, train_labels, train_nodes, 
                                                                          self.n_real, mode='threshold', threshold=self.threshold)
                 
@@ -327,6 +328,13 @@ class CoG(nn.Module):
 
                 plt.savefig(f'./image/testplt_101.jpg')
                 plt.close('all')
+
+
+                # fake_adj = _similarity(embeddings, embeddings)
+                # plt.figure()
+                # sns.histplot(data=fake_adj[tuple(real_edge_index[:, real_mask])].detach().cpu(), bins=30, color='skyblue', stat='count')
+                # sns.histplot(data=fake_adj[tuple(real_edge_index[:, ~real_mask])].detach().cpu(), bins=30, color='real', stat='count', alpha=0.7)
+                # plt.savefig(f'./image/testplt_100.jpg')
 
         self.restore_all(x, best_model_s_wts, best_model_g_wts, best_edge_index, best_edge_weight)
         # print('correct labels',(train_labels[train_nodes[train_nodes<self.n_real]] == labels[train_nodes[train_nodes<self.n_real]]).sum()/len(train_nodes[train_nodes<self.n_real]))
@@ -496,3 +504,12 @@ class GCN(nn.Module):
         x = self.conv2(x, edge_index, edge_weight)
 
         return x
+
+def drop_edge(z, real_edge_index, threshold):
+    sim_mat = _similarity(z)
+    edge_weight = sim_mat[tuple(real_edge_index)]
+
+    mask = edge_weight > threshold
+
+    return real_edge_index[:, mask]
+    
