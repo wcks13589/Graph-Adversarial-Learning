@@ -1,3 +1,4 @@
+import json
 import torch
 import torch.nn.functional as F
 import numpy as np
@@ -182,10 +183,13 @@ def add_edges(fake_edge_index, fake_edge_weight, training_labels, train_mask, n_
         train_label_mask = torch.logical_and(torch.isin(fake_edge_index[0], train_mask), torch.isin(fake_edge_index[1], train_mask))
         
         sim_mask = torch.logical_and(node_mask, fake_edge_weight >= threshold)
-        sim_mask = torch.logical_and(sim_mask, ~train_label_mask)
+        # sim_mask = torch.logical_and(sim_mask, ~train_label_mask)
 
         label_mask = torch.logical_and(node_mask, training_labels[fake_edge_index[0]] == training_labels[fake_edge_index[1]])
         label_mask = torch.logical_and(label_mask, train_label_mask)
+        label_mask = torch.logical_and(label_mask, sim_mask)
+
+        sim_mask = torch.logical_and(sim_mask, ~train_label_mask)
 
         edge_mask = label_mask + sim_mask
 
@@ -209,8 +213,16 @@ def add_edges(fake_edge_index, fake_edge_weight, training_labels, train_mask, n_
     
     else:
         raise AssertionError('Wrong Mode Name')
-    
+
+
     fake_edge_index = fake_edge_index[:, edge_mask]
     fake_edge_weight = fake_edge_weight[edge_mask]
 
     return fake_edge_index, fake_edge_weight, edge_mask
+
+def load_idx(dataset):
+    with open(f'./pertubed_data/{dataset}_train_test_idx.json', 'r') as f:
+        idx = json.loads(f.read())
+    idx_train, idx_val, idx_test = tuple(np.array(x) for x in idx.values())
+
+    return idx_train, idx_val, idx_test

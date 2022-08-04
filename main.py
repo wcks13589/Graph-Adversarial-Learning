@@ -6,14 +6,14 @@ from deeprobust.graph.data import Dataset
 from deeprobust.graph.utils import preprocess
 
 from model import Defender
-from utils import resplit_data, get_train_val_test, seed_everything
+from utils import resplit_data, get_train_val_test, seed_everything, load_idx
 
 parser = argparse.ArgumentParser()
 parser.add_argument('--seed', type=int, default=15, help='Random seed')
-parser.add_argument('--dataset', type=str, default='cora', choices=['cora', 'citeseer', 'cora_ml', 'polblogs', 'pubmed', 'acm', 'blogcatalog', 'uai', 'flickr'])
+parser.add_argument('--dataset', type=str, default='citeseer', choices=['cora', 'citeseer', 'cora_ml', 'polblogs', 'pubmed', 'acm', 'blogcatalog', 'uai', 'flickr'])
 parser.add_argument('--ptb_rate_nontarget', type=float, default=0.2, choices=[0.05, 0.1, 0.15, 0.2, 0.25], help='Pertubation rate (Metatack, PGD)')
 parser.add_argument('--ptb_rate_target', type=float, default=5.0, choices=[1.0,2.0,3.0,4.0,5.0], help='Pertubation rate (Nettack)')
-parser.add_argument('--attacker', type=str, default='Clean', choices=['Clean', 'PGD', 'meta', 'Label', 'Class', 'nettack'])
+parser.add_argument('--attacker', type=str, default='nettack', choices=['Clean', 'PGD', 'meta', 'Label', 'Class', 'nettack'])
 parser.add_argument('--defender', type=str, default='NewCoG', choices=['gcn', 'prognn', 'MyGCN', 'CoG', 'NewCoG', 'RSGNN'])
 parser.add_argument('--verbose', action="store_false", default=True)
 
@@ -44,15 +44,14 @@ parser.add_argument('--dropout', type=float, default=0.5, help='Dropout rate (1 
 # parser.add_argument('--symmetric', action='store_true', default=False, help='whether use symmetric matrix')
 
 # NewCoG setting
-parser.add_argument('--threshold', type=float, default=0.9)
-parser.add_argument('--k', type=int, default=5)
-parser.add_argument('--fake_nodes', '-f', type=int, default=10)
+parser.add_argument('--threshold', type=float, default=0.0)
+parser.add_argument('--k', type=int, default=2)
+parser.add_argument('--fake_nodes', '-f', type=int, default=5)
 parser.add_argument('--iteration', type=int, default=10)
 parser.add_argument('--add_labels', type=int, default=250)
 
 # Argument Initialization
 args = parser.parse_args()
-print(args)
 if args.defender == 'RSGNN':
     feature_normalize = False
 else:
@@ -63,6 +62,9 @@ def main(args):
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     # device = torch.device("cpu")
     seed_everything(args.seed)
+
+    if args.ptb_rate_nontarget == 0:
+        args.attacker = 'Clean'
 
     # Prepare Data
     if args.dataset == 'wisconsin':
@@ -78,11 +80,17 @@ def main(args):
     n_samples, n_features = features.shape
 
     if args.attacker == 'Label':
-        idx_train, idx_val, idx_test = data.idx_train, data.idx_val, data.idx_test
+        # idx_train, idx_val, idx_test = data.idx_train, data.idx_val, data.idx_test
+        idx_train, idx_val, idx_test = resplit_data(data.idx_train, data.idx_val, data.idx_test, data.labels, ratio=0.03)
+        
     else:
+        # import json
         idx_train, idx_val, idx_test = resplit_data(data.idx_train, data.idx_val, data.idx_test, data.labels)
-        # idx_train, idx_val, idx_test = get_train_val_test(features.shape[0], stratify=data.labels)
-    # print(sum(idx_train))
+        # nodes = {"idx_train":idx_train.tolist(), "idx_val":idx_val.tolist(), "idx_test":idx_test.tolist()}
+        # with open(f'./pertubed_data/{args.dataset}_train_test_idx.json', 'w') as f:
+        #     json.dump(nodes, f)
+        # idx_train, idx_val, idx_test = load_idx(args.dataset)
+        # print(idx_train.sum())
 
     if args.attacker in ['meta', 'nettack']:
         if args.attacker == 'meta':
@@ -165,7 +173,10 @@ def main(args):
         else:
             labels_ = labels.cpu().numpy()
         noise_labels = noisify_labels(labels_, idx_train, idx_val, args.ptb_rate_nontarget)
-        noise_labels = torch.LongTensor(noise_labels).to(device)
+        
+        if args.defender not in ['SimPGCN', 'GCN_SVD', 'GCN_Jaccard']:
+            noise_labels = torch.LongTensor(noise_labels).to(device)
+
     
     elif args.attacker == 'Class':
         from Attack.Class import ClassImbalance

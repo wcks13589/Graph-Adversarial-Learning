@@ -11,15 +11,15 @@ from utils import resplit_data, get_train_val_test, seed_everything
 
 parser = argparse.ArgumentParser()
 parser.add_argument('--seed', type=int, default=19, help='Random seed')
-parser.add_argument('--dataset', type=str, default='cora', choices=['cora', 'citeseer', 'cora_ml', 'polblogs', 'pubmed', 'winconsin'])
+parser.add_argument('--dataset', type=str, default='citeseer', choices=['cora', 'citeseer', 'cora_ml', 'polblogs', 'pubmed', 'winconsin'])
 parser.add_argument('--ptb_rate_nontarget', type=float, default=0.2, choices=[0.05, 0.1, 0.15, 0.2, 0.25], help='Pertubation rate (Metatack, PGD)')
 parser.add_argument('--ptb_rate_target', type=float, default=5.0, choices=[1.0,2.0,3.0,4.0,5.0], help='Pertubation rate (Nettack)')
-parser.add_argument('--attacker', type=str, default='Clean', choices=['Clean', 'PGD', 'meta', 'Label', 'Class', 'nettack'])
+parser.add_argument('--attacker', type=str, default='meta', choices=['Clean', 'PGD', 'meta', 'Label', 'Class', 'nettack'])
 parser.add_argument('--defender', type=str, default='NewCoG', choices=['gcn', 'prognn', 'MyGCN', 'CoG', 'NewCoG', 'RSGNN', 'RGCN', 'SimPGCN', 'GCN_SVD', 'GCN_Jaccard'])
 parser.add_argument('--verbose', action="store_false", default=False)
 
 # model training setting
-parser.add_argument('--lr', type=float, default=0.001, help='Learning rate')
+parser.add_argument('--lr', type=float, default=0.01, help='Learning rate')
 parser.add_argument('--weight_decay', type=float, default=5e-4, help='Weight decay (L2 loss on parameters).')
 parser.add_argument('--hidden', type=int, default=64, help='Number of hidden units.')
 parser.add_argument('--dropout', type=float, default=0.5, help='Dropout rate (1 - keep probability).')
@@ -45,11 +45,11 @@ parser.add_argument('--lr_adj', type=float, default=0.01, help='lr for training 
 parser.add_argument('--symmetric', action='store_true', default=False, help='whether use symmetric matrix')
 
 # NewCoG setting
-parser.add_argument('--threshold', type=float, default=0.9)
-parser.add_argument('--k', type=int, default=2)
-parser.add_argument('-f', '--fake_nodes', type=int, default=10)
+parser.add_argument('--threshold', type=float, default=0.8)
+parser.add_argument('--k', type=int, default=5)
+parser.add_argument('-f', '--fake_nodes', type=int, default=5)
 parser.add_argument('--iteration', type=int, default=10)
-parser.add_argument('--add_labels', type=int, default=250)
+parser.add_argument('--add_labels', type=int, default=1250)
 
 # Argument Initialization
 args = parser.parse_args()
@@ -60,21 +60,24 @@ else:
     feature_normalize = False
 
 if __name__ == '__main__':
-    datasets = ['cora_ml']
+    datasets = ['pubmed']
+    # ptb_rates = [0.2]
     ptb_rates = [0.2]
-    thresholds = [0.9]
-    ks = [5]
-    fs = [10]
+    # thresholds = [0.3]
+    thresholds = [0.0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9]
+    # ks = [5]
+    ks = [1]
+    fs = [50, 30]
     for dataset in datasets:
         args.dataset = dataset
+        best_results = []
         for rate in ptb_rates:
             args.ptb_rate_nontarget = rate
             setting = ['Clean', 'Evasion', 'Poison', 'Confusion']
-            best_results = {'threshold':[], 'fake_nodes':[], 'k':[]}
-            for threshold in thresholds:
-                args.threshold = threshold
-                for f in fs:
-                    args.fake_nodes = f
+            for f in fs:
+                args.fake_nodes = f
+                for threshold in thresholds:
+                    args.threshold = threshold
                     for k in ks:
                         if k > f:
                             break
@@ -93,4 +96,9 @@ if __name__ == '__main__':
                                 continue
                                 print(v)
                             else:
-                                print(f'{k} Graph: {np.mean(v):.4f} ± {np.std(v):.4f}')
+                                acc = f'{np.mean(v):.4f} ± {np.std(v):.4f}'
+                                print(f'{k} Graph:', acc)
+                                if np.mean(v) > 0:
+                                    best_results.append([args.threshold, args.fake_nodes, args.k, acc])
+
+    print(best_results)
