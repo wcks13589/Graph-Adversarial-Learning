@@ -9,6 +9,7 @@ from deeprobust.graph.utils import *
 from deeprobust.graph.data import Dataset
 import argparse
 from scipy.sparse import csr_matrix
+from sklearn.model_selection import train_test_split
 
 
 parser = argparse.ArgumentParser()
@@ -24,7 +25,7 @@ parser.add_argument('--hidden', type=int, default=16,
 parser.add_argument('--dropout', type=float, default=0.5,
                     help='Dropout rate (1 - keep probability).')
 parser.add_argument('--dataset', type=str, default='wisconsin', choices=['cora', 'cora_ml', 'citeseer', 'polblogs', 'pubmed'], help='dataset')
-parser.add_argument('--ptb_rate', type=float, default=0.1,  help='pertubation rate')
+parser.add_argument('--ptb_rate', type=float, default=0.05,  help='pertubation rate')
 parser.add_argument('--model', type=str, default='Meta-Self', choices=['A-Meta-Self', 'Meta-Self', 'Meta-Train','A-Meta-Train'], help='model variant')
 
 args = parser.parse_args()
@@ -39,17 +40,16 @@ if device != 'cpu':
 # data = Dataset(root='/tmp/', name=args.dataset, setting='nettack')
 # adj, features, labels = data.adj, data.features, data.labels
 # idx_train, idx_val, idx_test = data.idx_train, data.idx_val, data.idx_test
-from utils import load_data
-features, edge_index, labels = load_data()
+from new_data import New_Dataset
+data = New_Dataset(root='./data/', name=args.dataset, setting='prognn')
+features, adj, labels = data.features, data.adj, data.labels
 n = features.shape[0]
-indices = np.random.permutation(n)
-num = int(n * 0.1)
-idx_train, idx_val, idx_test = indices[:num], indices[num: num*5], indices[num*5:]
-adj = csr_matrix((np.ones_like(edge_index[0]), (edge_index[0], edge_index[1])), shape=(n, n))
+
+idx_train, idx_test = train_test_split(np.arange(n), test_size=0.8, random_state=args.seed, stratify=labels)
+idx_train, idx_val = train_test_split(idx_train, train_size=0.5, random_state=args.seed, stratify=labels[idx_train])
 
 idx_unlabeled = np.union1d(idx_val, idx_test)
 
-perturbations = int(args.ptb_rate * (adj.sum()//2))
 adj, features, labels = preprocess(adj, features, labels, preprocess_adj=False)
 
 
@@ -98,12 +98,14 @@ def test(adj):
 
 
 def main():
+    perturbations = int(args.ptb_rate * (adj.sum()//2))
     model.attack(features, adj, labels, idx_train, idx_unlabeled, perturbations, ll_constraint=False)
     print('=== testing GCN on original(clean) graph ===')
     test(adj)
     modified_adj = model.modified_adj
     # modified_features = model.modified_features
     test(modified_adj)
+    print(adj.sum(), modified_adj.sum())
 
     # if you want to save the modified adj/features, uncomment the code below
     model.save_adj(root='./pertubed_data', name='{}_meta_adj_{}'.format(args.dataset, args.ptb_rate))

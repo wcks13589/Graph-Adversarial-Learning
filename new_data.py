@@ -64,9 +64,9 @@ class New_Dataset:
         return idx_train, idx_val, idx_test
 
     def load_preptbdata(self, attack_method, ptb_rate):
-        self.modified_adj = sp.load_npz(f'./pertubed_data/{self.dataset}_{attack_method}_adj_{ptb_rate}.npz')
+        self.adj = sp.load_npz(f'./pertubed_data/{self.dataset}_{attack_method}_adj_{ptb_rate}.npz')
         if attack_method == 'nettack':
-            with open(f'./pertubed_data/{dataset}_nettacked_nodes.json', 'r') as f:
+            with open(f'./pertubed_data/{self.dataset}_nettacked_nodes.json', 'r') as f:
                 idx = json.loads(f.read())
             self.target_nodes = idx['attacked_test_nodes']
     

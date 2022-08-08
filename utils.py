@@ -17,7 +17,7 @@ def resplit_data(idx_train, idx_val, idx_test, labels, ratio=0.01):
     n_train_old = idx_train.shape[0]
     n_train_new = int(n_nodes * ratio)
     train_ratio = n_train_new / n_train_old
-    
+
     classes, counts = np.unique(labels[idx_train], return_counts=True)
 
     idx_train = idx_train.copy()
@@ -26,6 +26,9 @@ def resplit_data(idx_train, idx_val, idx_test, labels, ratio=0.01):
     idx_train_new = []
     for c, count in zip(classes, counts):
         n_samples = round(count * train_ratio)
+        if n_samples < 1:
+            n_samples = 1
+
         new_idx = idx_train[labels[idx_train]==c]
         np.random.shuffle(new_idx)
         new_train_idx = new_idx[:n_samples]

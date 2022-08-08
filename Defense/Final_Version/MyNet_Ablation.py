@@ -310,19 +310,19 @@ class CoG(nn.Module):
             train_nodes = torch.cat([train_nodes, pseudo_nodes])
             self.pseudo_nodes_list.extend(pseudo_nodes.tolist())
 
-            if self.verbose:
-                fake_adjs = []
-                b = []
-                for n in test_nodes:
-                    same_nodes = torch.where(train_labels != labels[n])[0]
-                    same_nodes = same_nodes[same_nodes>=self.n_real]
-                    a = _similarity(embeddings[n].unsqueeze(0), embeddings[same_nodes])
-                    fake_adjs.append(a)
+            # if self.verbose:
+            #     fake_adjs = []
+            #     b = []
+            #     for n in test_nodes:
+            #         same_nodes = torch.where(train_labels != labels[n])[0]
+            #         same_nodes = same_nodes[same_nodes>=self.n_real]
+            #         a = _similarity(embeddings[n].unsqueeze(0), embeddings[same_nodes])
+            #         fake_adjs.append(a)
                     
-                    # a = torch.where(a > 0.7)[1]
-                    # b.append(_similarity(self.x[n].unsqueeze(0), self.x[same_nodes[a]]))
+            #         # a = torch.where(a > 0.7)[1]
+            #         # b.append(_similarity(self.x[n].unsqueeze(0), self.x[same_nodes[a]]))
 
-                fake_adjs = torch.cat(fake_adjs)
+            #     fake_adjs = torch.cat(fake_adjs)
                 # b = torch.cat(b, -1)
 
                 # plt.figure()
@@ -331,24 +331,24 @@ class CoG(nn.Module):
                 # plt.close('all')
 
 
-                plt.figure()
-                sns.histplot(data=fake_adjs.flatten().detach().cpu(), bins=30, color='red', stat='count', alpha=0.6)
+                # plt.figure()
+                # sns.histplot(data=fake_adjs.flatten().detach().cpu(), bins=30, color='red', stat='count', alpha=0.6)
 
-                fake_adjs = []
-                for n in test_nodes:
-                    same_nodes = torch.where(train_labels == labels[n])[0]
-                    same_nodes = same_nodes[same_nodes>=self.n_real]
-                    a = _similarity(embeddings[n].unsqueeze(0), embeddings[same_nodes])
-                    # a = _similarity(self.x[n].unsqueeze(0), self.x[same_nodes])
-                    fake_adjs.append(a)
+                # fake_adjs = []
+                # for n in test_nodes:
+                #     same_nodes = torch.where(train_labels == labels[n])[0]
+                #     same_nodes = same_nodes[same_nodes>=self.n_real]
+                #     a = _similarity(embeddings[n].unsqueeze(0), embeddings[same_nodes])
+                #     # a = _similarity(self.x[n].unsqueeze(0), self.x[same_nodes])
+                #     fake_adjs.append(a)
 
 
-                fake_adjs = torch.cat(fake_adjs)
+                # fake_adjs = torch.cat(fake_adjs)
                 
-                sns.histplot(data=fake_adjs.flatten().detach().cpu(), bins=30, color='skyblue', stat='count')
+                # sns.histplot(data=fake_adjs.flatten().detach().cpu(), bins=30, color='skyblue', stat='count')
 
-                plt.savefig(f'./image/testplt_101.jpg')
-                plt.close('all')
+                # plt.savefig(f'./image/testplt_101.jpg')
+                # plt.close('all')
 
                 # fake_adj = _similarity(embeddings, embeddings)
                 # plt.figure()

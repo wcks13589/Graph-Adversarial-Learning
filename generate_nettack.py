@@ -11,6 +11,7 @@ from deeprobust.graph.data import Dataset
 import argparse
 from tqdm import tqdm
 from scipy.sparse import csr_matrix
+from sklearn.model_selection import train_test_split
 
 parser = argparse.ArgumentParser()
 parser.add_argument('--seed', type=int, default=15, help='Random seed.')
@@ -32,13 +33,14 @@ if args.cuda:
 # adj, features, labels = data.adj, data.features, data.labels
 
 # idx_train, idx_val, idx_test = data.idx_train, data.idx_val, data.idx_test
-from utils import load_data
-features, edge_index, labels = load_data()
+
+from new_data import New_Dataset
+data = New_Dataset(root='./data/', name=args.dataset, setting='prognn')
+features, adj, labels = data.features, data.adj, data.labels
 n = features.shape[0]
-indices = np.random.permutation(n)
-num = int(n * 0.1)
-idx_train, idx_val, idx_test = indices[:num], indices[num: num*5], indices[num*5:]
-adj = csr_matrix((np.ones_like(edge_index[0]), (edge_index[0], edge_index[1])), shape=(n, n))
+
+idx_train, idx_test = train_test_split(np.arange(n), test_size=0.8, random_state=args.seed, stratify=labels)
+idx_train, idx_val = train_test_split(idx_train, train_size=0.5, random_state=args.seed, stratify=labels[idx_train])
 
 idx_unlabeled = np.union1d(idx_val, idx_test)
 

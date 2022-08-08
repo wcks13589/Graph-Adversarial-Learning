@@ -28,7 +28,6 @@ class Defender():
             # from Defense.Meeting_0607.Edge_Mix_New_Create_Nodes_Ablation import CoG
             # from Defense.Final_Version.MyNet import CoG
             from Defense.Final_Version.MyNet_Ablation import CoG
-            # from Defense.Final_Version.MyNet_Subtab_V2 import CoG
             model = CoG(args=self.args, nfeat=nfeat, nhid=self.args.hidden, nclass=nclass, 
                         dropout=self.args.dropout,lr=self.args.lr,weight_decay=self.args.weight_decay, 
                         verbose=self.verbose, device=self.device).to(self.device)

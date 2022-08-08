@@ -9,16 +9,16 @@ from model import Defender
 from utils import resplit_data, get_train_val_test, seed_everything, load_idx
 
 parser = argparse.ArgumentParser()
-parser.add_argument('--seed', type=int, default=15, help='Random seed')
-parser.add_argument('--dataset', type=str, default='citeseer', choices=['cora', 'citeseer', 'cora_ml', 'polblogs', 'pubmed', 'acm', 'blogcatalog', 'uai', 'flickr'])
+parser.add_argument('--seed', type=int, default=16, help='Random seed')
+parser.add_argument('--dataset', type=str, default='pubmed', choices=['cora', 'citeseer', 'cora_ml', 'polblogs', 'pubmed', 'acm', 'blogcatalog', 'uai', 'flickr'])
 parser.add_argument('--ptb_rate_nontarget', type=float, default=0.2, choices=[0.05, 0.1, 0.15, 0.2, 0.25], help='Pertubation rate (Metatack, PGD)')
 parser.add_argument('--ptb_rate_target', type=float, default=5.0, choices=[1.0,2.0,3.0,4.0,5.0], help='Pertubation rate (Nettack)')
-parser.add_argument('--attacker', type=str, default='nettack', choices=['Clean', 'PGD', 'meta', 'Label', 'Class', 'nettack'])
+parser.add_argument('--attacker', type=str, default='meta', choices=['Clean', 'PGD', 'meta', 'Label', 'Class', 'nettack'])
 parser.add_argument('--defender', type=str, default='NewCoG', choices=['gcn', 'prognn', 'MyGCN', 'CoG', 'NewCoG', 'RSGNN'])
 parser.add_argument('--verbose', action="store_false", default=True)
 
 # model training setting
-parser.add_argument('--lr', type=float, default=0.001, help='Learning rate') # 記得train GCN的時候lr要改成0.01，其餘為0.001
+parser.add_argument('--lr', type=float, default=0.01, help='Learning rate') # 記得train GCN的時候lr要改成0.01，其餘為0.001
 parser.add_argument('--weight_decay', type=float, default=5e-4, help='Weight decay (L2 loss on parameters).')
 parser.add_argument('--hidden', type=int, default=64, help='Number of hidden units.')
 parser.add_argument('--dropout', type=float, default=0.5, help='Dropout rate (1 - keep probability).')
@@ -44,9 +44,9 @@ parser.add_argument('--dropout', type=float, default=0.5, help='Dropout rate (1 
 # parser.add_argument('--symmetric', action='store_true', default=False, help='whether use symmetric matrix')
 
 # NewCoG setting
-parser.add_argument('--threshold', type=float, default=0.0)
+parser.add_argument('--threshold', type=float, default=0.9)
 parser.add_argument('--k', type=int, default=2)
-parser.add_argument('--fake_nodes', '-f', type=int, default=5)
+parser.add_argument('--fake_nodes', '-f', type=int, default=20)
 parser.add_argument('--iteration', type=int, default=10)
 parser.add_argument('--add_labels', type=int, default=250)
 

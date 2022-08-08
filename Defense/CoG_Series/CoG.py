@@ -102,7 +102,7 @@ class CoG(nn.Module):
         self.model_f.load_state_dict(best_model_f_wts)
         self.model_s.load_state_dict(best_model_s_wts)
 
-    def add_nodes(self, x, edge_index, labels, train_mask, n=125):
+    def add_nodes(self, x, edge_index, labels, train_mask, n=15):
         mask = torch.isin(torch.arange(x.shape[0]), train_mask)
         unlabel_nodes = torch.where(~mask)[0]
 
