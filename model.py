@@ -55,12 +55,12 @@ class Defender():
         else:
             if self.defender in ['gcn', 'prognn']:
                 from deeprobust.graph.defense import GCN
-                
             elif self.defender == 'MyGCN':
                 from Defense.MyGCN import GCN
+            lr = 0.01 if self.defender == 'gcn' else self.args.lr
             
             model = GCN(nfeat=nfeat, nhid=self.args.hidden, nclass=nclass, 
-                        dropout=self.args.dropout, lr=self.args.lr, weight_decay=self.args.weight_decay,
+                        dropout=self.args.dropout, lr=lr, weight_decay=self.args.weight_decay,
                         device=self.device).to(self.device)
 
         if self.defender == 'prognn':

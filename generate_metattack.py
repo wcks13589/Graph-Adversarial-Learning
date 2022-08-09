@@ -24,8 +24,8 @@ parser.add_argument('--hidden', type=int, default=16,
                     help='Number of hidden units.')
 parser.add_argument('--dropout', type=float, default=0.5,
                     help='Dropout rate (1 - keep probability).')
-parser.add_argument('--dataset', type=str, default='wisconsin', choices=['cora', 'cora_ml', 'citeseer', 'polblogs', 'pubmed'], help='dataset')
-parser.add_argument('--ptb_rate', type=float, default=0.05,  help='pertubation rate')
+parser.add_argument('--dataset', type=str, default='cora', choices=['cora', 'cora_ml', 'citeseer', 'polblogs', 'pubmed', 'film', 'chameleon'], help='dataset')
+parser.add_argument('--ptb_rate', type=float, default=0.2,  help='pertubation rate')
 parser.add_argument('--model', type=str, default='Meta-Self', choices=['A-Meta-Self', 'Meta-Self', 'Meta-Train','A-Meta-Train'], help='model variant')
 
 args = parser.parse_args()
@@ -37,13 +37,14 @@ torch.manual_seed(args.seed)
 if device != 'cpu':
     torch.cuda.manual_seed(args.seed)
 
-# data = Dataset(root='/tmp/', name=args.dataset, setting='nettack')
+data = Dataset(root='./data/', name=args.dataset, setting='gcn')
 # adj, features, labels = data.adj, data.features, data.labels
 # idx_train, idx_val, idx_test = data.idx_train, data.idx_val, data.idx_test
-from new_data import New_Dataset
-data = New_Dataset(root='./data/', name=args.dataset, setting='prognn')
+# from new_data import New_Dataset
+# data = New_Dataset(root='./data/', name=args.dataset, setting='prognn')
 features, adj, labels = data.features, data.adj, data.labels
 n = features.shape[0]
+print(labels.shape)
 
 idx_train, idx_test = train_test_split(np.arange(n), test_size=0.8, random_state=args.seed, stratify=labels)
 idx_train, idx_val = train_test_split(idx_train, train_size=0.5, random_state=args.seed, stratify=labels[idx_train])
@@ -108,11 +109,11 @@ def main():
     print(adj.sum(), modified_adj.sum())
 
     # if you want to save the modified adj/features, uncomment the code below
-    model.save_adj(root='./pertubed_data', name='{}_meta_adj_{}'.format(args.dataset, args.ptb_rate))
+    # model.save_adj(root='./pertubed_data', name='{}_meta_adj_{}'.format(args.dataset, args.ptb_rate))
     # model.save_features(root='./', name='mod_features')
-    nodes = {"idx_train":idx_train.tolist(), "idx_val":idx_val.tolist(), 'idx_test':idx_test.tolist()}
-    with open(f'./pertubed_data/{args.dataset}_metattacked_nodes.json', 'w') as f:
-        json.dump(nodes, f)
+    # nodes = {"idx_train":idx_train.tolist(), "idx_val":idx_val.tolist(), 'idx_test':idx_test.tolist()}
+    # with open(f'./pertubed_data/{args.dataset}_metattacked_nodes.json', 'w') as f:
+    #     json.dump(nodes, f)
 
 
 if __name__ == '__main__':

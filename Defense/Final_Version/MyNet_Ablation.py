@@ -319,8 +319,8 @@ class CoG(nn.Module):
             #         a = _similarity(embeddings[n].unsqueeze(0), embeddings[same_nodes])
             #         fake_adjs.append(a)
                     
-            #         # a = torch.where(a > 0.7)[1]
-            #         # b.append(_similarity(self.x[n].unsqueeze(0), self.x[same_nodes[a]]))
+            #     #     # a = torch.where(a > 0.7)[1]
+            #     #     b.append(_similarity(self.x[n].unsqueeze(0), self.x[same_nodes]))
 
             #     fake_adjs = torch.cat(fake_adjs)
                 # b = torch.cat(b, -1)

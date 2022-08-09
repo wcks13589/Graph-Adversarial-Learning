@@ -16,7 +16,7 @@ from sklearn.model_selection import train_test_split
 parser = argparse.ArgumentParser()
 parser.add_argument('--seed', type=int, default=15, help='Random seed.')
 parser.add_argument('--ptb_rate', type=int, default=5.0, help='Perturbation rate.')
-parser.add_argument('--dataset', type=str, default='wisconsin', choices=['cora', 'cora_ml', 'citeseer', 'polblogs', 'pubmed'], help='dataset')
+parser.add_argument('--dataset', type=str, default='texas', choices=['cora', 'cora_ml', 'citeseer', 'polblogs', 'pubmed', 'cornell', 'texas'], help='dataset')
 
 
 args = parser.parse_args()
@@ -38,6 +38,7 @@ from new_data import New_Dataset
 data = New_Dataset(root='./data/', name=args.dataset, setting='prognn')
 features, adj, labels = data.features, data.adj, data.labels
 n = features.shape[0]
+print(lebels.shape)
 
 idx_train, idx_test = train_test_split(np.arange(n), test_size=0.8, random_state=args.seed, stratify=labels)
 idx_train, idx_val = train_test_split(idx_train, train_size=0.5, random_state=args.seed, stratify=labels[idx_train])

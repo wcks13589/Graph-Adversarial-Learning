@@ -9,8 +9,8 @@ from model import Defender
 from utils import resplit_data, get_train_val_test, seed_everything, load_idx
 
 parser = argparse.ArgumentParser()
-parser.add_argument('--seed', type=int, default=16, help='Random seed')
-parser.add_argument('--dataset', type=str, default='pubmed', choices=['cora', 'citeseer', 'cora_ml', 'polblogs', 'pubmed', 'acm', 'blogcatalog', 'uai', 'flickr'])
+parser.add_argument('--seed', type=int, default=15, help='Random seed')
+parser.add_argument('--dataset', type=str, default='cornell', choices=['cora', 'citeseer', 'cora_ml', 'polblogs', 'pubmed', 'wisconsin', 'cornell', 'texas'])
 parser.add_argument('--ptb_rate_nontarget', type=float, default=0.2, choices=[0.05, 0.1, 0.15, 0.2, 0.25], help='Pertubation rate (Metatack, PGD)')
 parser.add_argument('--ptb_rate_target', type=float, default=5.0, choices=[1.0,2.0,3.0,4.0,5.0], help='Pertubation rate (Nettack)')
 parser.add_argument('--attacker', type=str, default='meta', choices=['Clean', 'PGD', 'meta', 'Label', 'Class', 'nettack'])
@@ -18,16 +18,16 @@ parser.add_argument('--defender', type=str, default='NewCoG', choices=['gcn', 'p
 parser.add_argument('--verbose', action="store_false", default=True)
 
 # model training setting
-parser.add_argument('--lr', type=float, default=0.01, help='Learning rate') # 記得train GCN的時候lr要改成0.01，其餘為0.001
+parser.add_argument('--lr', type=float, default=0.001, help='Learning rate') # 記得train GCN的時候lr要改成0.01，其餘為0.001
 parser.add_argument('--weight_decay', type=float, default=5e-4, help='Weight decay (L2 loss on parameters).')
 parser.add_argument('--hidden', type=int, default=64, help='Number of hidden units.')
 parser.add_argument('--dropout', type=float, default=0.5, help='Dropout rate (1 - keep probability).')
 
 # PGD setting
-# parser.add_argument('--epochs_pgd', type=int,  default=200, help='Number of epochs to train on PGD')
-# parser.add_argument('--loss_type', type=str, default='tanhMarginMCE', choices=['CE', 'CW', 'tanhMarginMCE', 'CL'])
-# parser.add_argument('--attack_graph', action="store_false", default=True)
-# parser.add_argument('--attack_feat', action="store_true", default=False)
+parser.add_argument('--epochs_pgd', type=int,  default=200, help='Number of epochs to train on PGD')
+parser.add_argument('--loss_type', type=str, default='CE', choices=['CE', 'CW', 'tanhMarginMCE', 'CL'])
+parser.add_argument('--attack_graph', action="store_false", default=False)
+parser.add_argument('--attack_feat', action="store_true", default=True)
 
 # ProGNN setting
 # parser.add_argument('--debug', action='store_true', default=False, help='debug mode')
@@ -44,11 +44,11 @@ parser.add_argument('--dropout', type=float, default=0.5, help='Dropout rate (1 
 # parser.add_argument('--symmetric', action='store_true', default=False, help='whether use symmetric matrix')
 
 # NewCoG setting
-parser.add_argument('--threshold', type=float, default=0.9)
+parser.add_argument('--threshold', type=float, default=0.2)
 parser.add_argument('--k', type=int, default=2)
 parser.add_argument('--fake_nodes', '-f', type=int, default=20)
 parser.add_argument('--iteration', type=int, default=10)
-parser.add_argument('--add_labels', type=int, default=250)
+parser.add_argument('--add_labels', type=int, default=20)
 
 # Argument Initialization
 args = parser.parse_args()
@@ -67,7 +67,7 @@ def main(args):
         args.attacker = 'Clean'
 
     # Prepare Data
-    if args.dataset == 'wisconsin':
+    if args.dataset in ['wisconsin', 'cornell', 'texas']:
         from new_data import New_Dataset
         data = New_Dataset(root='./data/', name=args.dataset, setting='prognn')
     else:
@@ -85,7 +85,7 @@ def main(args):
         
     else:
         # import json
-        idx_train, idx_val, idx_test = resplit_data(data.idx_train, data.idx_val, data.idx_test, data.labels)
+        idx_train, idx_val, idx_test = resplit_data(data.idx_train, data.idx_val, data.idx_test, data.labels, ratio=0.01)
         # nodes = {"idx_train":idx_train.tolist(), "idx_val":idx_val.tolist(), "idx_test":idx_test.tolist()}
         # with open(f'./pertubed_data/{args.dataset}_train_test_idx.json', 'w') as f:
         #     json.dump(nodes, f)
@@ -98,7 +98,7 @@ def main(args):
         elif args.attacker == 'nettack':
             ptb_rate = args.ptb_rate_target
 
-        if args.dataset == 'wisconsin':
+        if args.dataset in ['wisconsin', 'cornell', 'texas']:
             data.load_preptbdata(args.attacker, ptb_rate=ptb_rate)
             perturbed_data = data
         else:
@@ -117,6 +117,7 @@ def main(args):
         noise_labels = labels
     classes, counts = np.unique(data.labels[idx_train], return_counts=True)
     print(idx_train.shape[0], idx_val.shape[0], idx_test.shape[0], classes.shape[0], dict(zip(classes, counts)))
+    print(sum(idx_train))
 
     # Model Initialization
     model = Defender(args, device)
@@ -153,7 +154,7 @@ def main(args):
         # idx_others = list(set(np.arange(len(labels))) - set(idx_train))
         # fake_labels = torch.cat([labels[idx_train], fake_labels[idx_others]])
 
-        attacker.attack(features, adj, adj, fake_labels, idx_fake, n_perturbations, epochs=args.epochs_pgd)
+        attacker.attack(features, adj, fake_labels, idx_fake, n_perturbations, epochs=args.epochs_pgd)
 
         if args.attack_graph:
             modified_adj = attacker.modified_adj

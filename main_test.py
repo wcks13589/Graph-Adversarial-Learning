@@ -11,7 +11,7 @@ from utils import resplit_data, get_train_val_test, seed_everything
 
 parser = argparse.ArgumentParser()
 parser.add_argument('--seed', type=int, default=19, help='Random seed')
-parser.add_argument('--dataset', type=str, default='pubmed', choices=['cora', 'citeseer', 'cora_ml', 'polblogs', 'pubmed', 'wisconsin'])
+parser.add_argument('--dataset', type=str, default='film', choices=['cora', 'citeseer', 'cora_ml', 'polblogs', 'pubmed', 'wisconsin', 'cornell', 'texas', 'film'])
 parser.add_argument('--ptb_rate_nontarget', type=float, default=0.2, choices=[0.05, 0.1, 0.15, 0.2, 0.25], help='Pertubation rate (Metatack, PGD)')
 parser.add_argument('--ptb_rate_target', type=float, default=5.0, choices=[1.0,2.0,3.0,4.0,5.0], help='Pertubation rate (Nettack)')
 parser.add_argument('--attacker', type=str, default='meta', choices=['Clean', 'PGD', 'meta', 'Label', 'Class', 'nettack'])
@@ -48,8 +48,8 @@ parser.add_argument('--symmetric', action='store_true', default=False, help='whe
 parser.add_argument('--threshold', type=float, default=0.8)
 parser.add_argument('--k', type=int, default=5)
 parser.add_argument('-f', '--fake_nodes', type=int, default=5)
-parser.add_argument('--iteration', type=int, default=10)
-parser.add_argument('--add_labels', type=int, default=25)
+parser.add_argument('--iteration', type=int, default=5)
+parser.add_argument('--add_labels', type=int, default=40)
 
 # Argument Initialization
 args = parser.parse_args()
@@ -60,14 +60,14 @@ else:
     feature_normalize = False
 
 if __name__ == '__main__':
-    datasets = ['wisconsin']
-    # ptb_rates = [0.2, 0.15, 0.1, 0.05, 0.0]
-    ptb_rates = [0.2]
-    thresholds = [0.0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9]
-    # thresholds = [0.2]
-    ks = [10]
-    # ks = [1,2,3,4,5,6,7,8,9,10]
-    fs = [20]
+    datasets = ['cornell']
+    ptb_rates = [0.2, 0.15, 0.1, 0.05, 0.0]
+    # ptb_rates = [0.2]
+    # thresholds = [0.0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9]
+    thresholds = [0.3]
+    ks = [8]
+    # ks = [5]
+    fs = [30]
     for dataset in datasets:
         args.dataset = dataset
         best_results = []

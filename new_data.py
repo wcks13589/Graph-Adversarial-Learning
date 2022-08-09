@@ -14,21 +14,34 @@ class New_Dataset:
 
         self.features, self.labels, self.n_nodes = self.load_feature_label()
         self.adj = self.load_adj()
-        self.idx_train, self.idx_val, self.idx_test = self.load_idx()
+        # self.idx_train, self.idx_val, self.idx_test = self.load_idx()
 
     def load_feature_label(self):
         graph_node_features_and_labels_file_path = os.path.join(self.root, f'{self.dataset}_node_feature_label.txt')
 
         graph_node_features_dict = {}
         graph_labels_dict = {}
-        with open(graph_node_features_and_labels_file_path) as graph_node_features_and_labels_file:
-            graph_node_features_and_labels_file.readline()
-            for line in graph_node_features_and_labels_file:
-                line = line.rstrip().split('\t')
-                assert (len(line) == 3)
-                assert (int(line[0]) not in graph_node_features_dict and int(line[0]) not in graph_labels_dict)
-                graph_node_features_dict[int(line[0])] = np.array(line[1].split(','), dtype=np.uint8)
-                graph_labels_dict[int(line[0])] = int(line[2])
+
+        if self.dataset == 'film':
+            with open(graph_node_features_and_labels_file_path) as graph_node_features_and_labels_file:
+                graph_node_features_and_labels_file.readline()
+                for line in graph_node_features_and_labels_file:
+                    line = line.rstrip().split('\t')
+                    assert (len(line) == 3)
+                    assert (int(line[0]) not in graph_node_features_dict and int(line[0]) not in graph_labels_dict)
+                    feature_blank = np.zeros(932, dtype=np.uint8)
+                    feature_blank[np.array(line[1].split(','), dtype=np.uint16)] = 1
+                    graph_node_features_dict[int(line[0])] = feature_blank
+                    graph_labels_dict[int(line[0])] = int(line[2])
+        else:
+            with open(graph_node_features_and_labels_file_path) as graph_node_features_and_labels_file:
+                graph_node_features_and_labels_file.readline()
+                for line in graph_node_features_and_labels_file:
+                    line = line.rstrip().split('\t')
+                    assert (len(line) == 3)
+                    assert (int(line[0]) not in graph_node_features_dict and int(line[0]) not in graph_labels_dict)
+                    graph_node_features_dict[int(line[0])] = np.array(line[1].split(','), dtype=np.uint8)
+                    graph_labels_dict[int(line[0])] = int(line[2])
 
         features = sp.csr_matrix(np.stack(list(graph_node_features_dict.values())))
         labels = np.array(list(graph_labels_dict.values()))

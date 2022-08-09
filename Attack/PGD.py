@@ -35,7 +35,7 @@ class NewPGDAttack(PGDAttack):
             self.feat_changes.data.fill_(0)
             self.complementary_feat = None
             
-    def attack(self, ori_features, ori_adj, adj_feat, labels, idx_train, n_perturbations, epochs=200, **kwargs):
+    def attack(self, ori_features, ori_adj, labels, idx_train, n_perturbations, epochs=200, **kwargs):
         """Generate perturbations on the input graph.
 
         Parameters
@@ -56,10 +56,14 @@ class NewPGDAttack(PGDAttack):
 
         """
 
+        
         victim_model = self.surrogate
         
         self.sparse_features = sp.issparse(ori_features)
         # ori_adj, ori_features, labels = utils.to_tensor(ori_adj, ori_features, labels, device=self.device)
+
+        edge_index_feat, edge_attr_feat = self.load_feature_graph(ori_features)
+        adj_feat = torch.sparse_coo_tensor(edge_index_feat, edge_attr_feat, [np.sum(ori_features.shape)]*2).to_dense()
         adj_feat = adj_feat.to(self.device)
         
         if utils.is_sparse_tensor(ori_adj):
@@ -280,6 +284,24 @@ class NewPGDAttack(PGDAttack):
             loss = alpha * margin.mean() + (1 - alpha) * loss
         
         return loss, output_ori, output_per, loss_log
+
+    def load_feature_graph(self, features):
+        edge_index_feat, edge_attr_feat = self.create_edges(features)
+        return edge_index_feat, edge_attr_feat
+
+    def create_edges(self, features):
+        n_samples = features.shape[0]
+        
+        edge_index = torch.stack(features.nonzero(as_tuple=True))
+        edge_attr = features[edge_index[0], edge_index[1]]
+
+        # to undirected
+        edge_index[1] += n_samples
+        edge_index_reverse = torch.stack([edge_index[1], edge_index[0]])
+        edge_index = torch.cat([edge_index, edge_index_reverse], -1)
+        edge_attr = torch.cat([edge_attr, edge_attr])
+        
+        return edge_index, edge_attr
         
 def _similarity(h1: torch.Tensor, h2: torch.Tensor):
     h1 = F.normalize(h1)
